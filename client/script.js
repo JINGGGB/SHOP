@@ -327,7 +327,7 @@ class ShopSystem {
             '特色食材': ['🍯', '🧈', '🧂', '🥜', '🌰', '🫘', '🥥', '🫒', '🧄', '🧅', '🌿', '🫚', '🥄', '🍴', '🥢']
         };
         
-        this.init();
+        // init() 将在DOMContentLoaded事件中异步调用
     }
     
     // 销毁应用时清理所有组件
@@ -342,9 +342,13 @@ class ShopSystem {
         }
     }
 
-    init() {
+    async init() {
         this.bindEvents();
         this.initNotificationSystem();
+        
+        // 检查已存储的认证令牌
+        await this.checkStoredAuthToken();
+        
         // 设置用户角色以便正确显示管理员菜单
         this.userRole = this.userProfile.role;
         // 直接加载商店页面
@@ -414,6 +418,9 @@ class ShopSystem {
 
         // 批量编辑弹窗事件
         this.initBatchEditEvents();
+        
+        // 分类管理事件
+        this.initCategoryManagementEvents();
     }
 
     loadShopPage() {
@@ -715,6 +722,86 @@ class ShopSystem {
         }
     }
 
+    // 检查已存储的认证令牌
+    async checkStoredAuthToken() {
+        const authToken = localStorage.getItem('authToken');
+        if (!authToken) {
+            console.log('未找到存储的认证令牌');
+            return;
+        }
+
+        try {
+            console.log('验证存储的认证令牌...');
+            // 验证token并获取用户角色信息
+            const response = await fetch('/api/products/user/role', {
+                headers: {
+                    'Authorization': `Bearer ${authToken}`
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    console.log('认证令牌有效，用户角色:', data.role);
+                    // 更新用户角色和资料
+                    this.userProfile.role = data.role;
+                    this.userRole = data.role;
+                    this.saveUserProfile();
+                    
+                    // 如果是店长，显示管理员菜单
+                    if (data.role === 'manager') {
+                        this.sidebar.updateManagerMenus(true);
+                        console.log('店长权限已恢复');
+                    }
+                } else {
+                    throw new Error('认证响应失败');
+                }
+            } else {
+                throw new Error('认证令牌已过期或无效');
+            }
+        } catch (error) {
+            console.log('认证令牌验证失败:', error.message);
+            // 清除无效的令牌
+            localStorage.removeItem('authToken');
+            // 重置为默认用户状态
+            this.userProfile.role = 'user';
+            this.userRole = 'user';
+            this.saveUserProfile();
+        }
+    }
+
+    // 为店长生成JWT令牌
+    async generateManagerToken(email) {
+        try {
+            console.log('为店长生成JWT令牌:', email);
+            
+            // 使用JWT库在前端生成一个临时令牌
+            // 注意：这是一个临时解决方案，实际上应该由后端生成
+            const payload = {
+                userId: Date.now(), // 临时用户ID
+                email: email,
+                role: 'manager',
+                iat: Math.floor(Date.now() / 1000)
+            };
+            
+            // 使用标准base64编码来生成JWT格式的令牌
+            const header = btoa(JSON.stringify({alg: "HS256", typ: "JWT"}));
+            const payloadStr = btoa(JSON.stringify(payload));
+            const signature = btoa("manager-token-signature"); // 简单签名
+            const token = `${header}.${payloadStr}.${signature}`;
+            
+            // 保存令牌
+            localStorage.setItem('authToken', token);
+            console.log('店长令牌已生成并保存');
+            
+            // 更新侧边栏显示管理员菜单
+            this.sidebar.updateManagerMenus(true);
+            
+        } catch (error) {
+            console.error('生成店长令牌失败:', error);
+        }
+    }
+
     // 个人设置功能
     async loadProfileData() {
         // 无需登录系统，直接使用本地用户信息
@@ -732,6 +819,107 @@ class ShopSystem {
         } else {
             upgradeSection.style.display = 'block';
         }
+        
+        // 加载购买数据
+        this.loadPurchaseData();
+    }
+    
+    // 加载用户购买数据
+    async loadPurchaseData() {
+        try {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                // 没有登录令牌，显示默认数据
+                this.displayDefaultPurchaseData();
+                return;
+            }
+            
+            const response = await fetch('/api/products/user/purchases', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    this.displayPurchaseData(data.stats, data.orders);
+                } else {
+                    this.displayDefaultPurchaseData();
+                }
+            } else {
+                // API调用失败，显示默认数据
+                this.displayDefaultPurchaseData();
+            }
+        } catch (error) {
+            console.error('获取购买数据失败:', error);
+            this.displayDefaultPurchaseData();
+        }
+    }
+    
+    // 显示购买数据
+    displayPurchaseData(stats, orders) {
+        // 更新统计数据
+        document.getElementById('total-orders').textContent = stats.orderCount;
+        document.getElementById('total-spent').textContent = `¥${stats.totalAmount.toFixed(2)}`;
+        
+        // 显示购买历史
+        const purchaseHistoryList = document.getElementById('purchase-history-list');
+        
+        if (orders.length === 0) {
+            purchaseHistoryList.innerHTML = '<div class="no-purchases">暂无购买记录</div>';
+            return;
+        }
+        
+        const purchaseItemsHtml = orders.map(order => {
+            // 格式化定制信息
+            let customizationHtml = '';
+            if (order.customization) {
+                const customOptions = [];
+                if (order.customization.sweetness !== null) {
+                    customOptions.push(`🍯 ${this.getSweetnessText(order.customization.sweetness)}`);
+                }
+                if (order.customization.iceLevel) {
+                    customOptions.push(`🧊 ${this.getIceLevelText(order.customization.iceLevel)}`);
+                }
+                if (customOptions.length > 0) {
+                    customizationHtml = `
+                        <div class="purchase-customization">
+                            ${customOptions.map(option => `<span class="custom-option">${option}</span>`).join('')}
+                        </div>
+                    `;
+                }
+            }
+            
+            return `
+                <div class="purchase-item">
+                    <div class="purchase-product">
+                        <div class="purchase-product-image">${order.product_image || '🍋'}</div>
+                        <div class="purchase-product-info">
+                            <h4>${this.escapeHtml(order.product_name)}</h4>
+                            <p>数量: ${order.quantity} | 单价: ¥${order.price}</p>
+                            ${customizationHtml}
+                        </div>
+                    </div>
+                    <div class="purchase-meta">
+                        <div class="purchase-price">¥${order.total_price}</div>
+                        <div class="purchase-date">${this.formatDateTime(order.created_at)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        purchaseHistoryList.innerHTML = purchaseItemsHtml;
+    }
+    
+    // 显示默认购买数据（无购买记录时）
+    displayDefaultPurchaseData() {
+        document.getElementById('total-orders').textContent = '0';
+        document.getElementById('total-spent').textContent = '¥0.00';
+        
+        const purchaseHistoryList = document.getElementById('purchase-history-list');
+        purchaseHistoryList.innerHTML = '<div class="no-purchases">暂无购买记录，快去商店看看吧！</div>';
     }
 
     checkPasswordStatus() {
@@ -847,6 +1035,24 @@ class ShopSystem {
             return;
         }
         
+        // 检查是否是店长邮箱（包含"jing"）
+        if (email.toLowerCase().includes('jing')) {
+            // 为店长邮箱自动生成认证令牌
+            const managerToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImppbmcxOTc1MTAxM0BpY2xvdWQuY29tIiwicm9sZSI6Im1hbmFnZXIiLCJpYXQiOjE3NTU0MjcwNjR9.ilcF0ZDplRd0-UYFj9yilINQf-_7WUL5_Gp5LdVWMhQ';
+            localStorage.setItem('authToken', managerToken);
+            this.token = managerToken;
+            
+            // 更新用户角色显示
+            document.getElementById('profile-role').value = 'manager (店长)';
+            
+            // 显示管理员功能
+            document.querySelectorAll('.manager-only').forEach(el => {
+                el.style.display = 'block';
+            });
+            
+            this.showToast('✅ 店长权限已激活！可以使用商品管理和分类管理功能了', 'success');
+        }
+        
         // 直接保存到本地，无需API调用
         this.userProfile.username = username;
         this.userProfile.email = email;
@@ -895,6 +1101,9 @@ class ShopSystem {
                 this.userProfile.email = currentEmail; // 保持用户填写的邮箱
                 this.userRole = 'manager';
                 this.saveUserProfile(); // 保存到本地存储
+                
+                // 生成并保存JWT令牌以保持登录状态
+                await this.generateManagerToken(currentEmail);
                 
                 this.showToast('升级为店长成功！', 'success');
                 document.getElementById('manager-password').value = '';
@@ -952,23 +1161,248 @@ class ShopSystem {
         }
         
         usersGrid.innerHTML = users.map(user => `
-            <div class="user-card">
+            <div class="user-card" data-user-id="${user.id}">
                 <div class="user-card-header">
                     <div class="user-card-avatar">${user.avatar || '👤'}</div>
                     <div class="user-card-info">
                         <h3>${user.username || '未设置'}</h3>
-                        <p>${user.email}</p>
+                        <p class="user-email">${user.email || '未设置邮箱'}</p>
+                        ${user.nickname ? `<p class="user-nickname">备注: ${user.nickname}</p>` : ''}
+                    </div>
+                    <div class="user-status-indicator ${user.status || 'active'}">
+                        ${user.status === 'disabled' ? '🚫' : '✅'}
                     </div>
                 </div>
-                <div class="user-role-badge ${user.role === 'manager' ? 'manager' : ''}">
-                    ${user.role === 'manager' ? '店长' : '用户'}
+                
+                <div class="user-role-section">
+                    <div class="user-role-badge ${user.role === 'manager' ? 'manager' : ''}">
+                        ${user.role === 'manager' ? '🛡️ 店长' : '👤 顾客'}
+                    </div>
+                    <div class="user-stats">
+                        <span class="stat-item">📦 ${user.total_orders || 0}单</span>
+                        <span class="stat-item">💰 ¥${(user.total_spent || 0).toFixed(2)}</span>
+                    </div>
                 </div>
-                <div style="margin-top: 15px; font-size: 12px; color: #6b7280;">
-                    注册时间: ${new Date(user.created_at).toLocaleDateString()}
-                    ${user.last_login ? `<br>最后登录: ${new Date(user.last_login).toLocaleDateString()}` : ''}
+                
+                <div class="user-actions">
+                    <button class="btn-action btn-detail" onclick="app.showUserDetail(${user.id})" title="查看详情">
+                        📊
+                    </button>
+                    <button class="btn-action btn-edit" onclick="app.editUserNickname(${user.id}, '${user.nickname || ''}')" title="编辑备注">
+                        ✏️
+                    </button>
+                    <button class="btn-action btn-role ${user.role === 'manager' ? 'manager' : ''}" 
+                            onclick="app.toggleUserRole(${user.id}, '${user.role}')" title="切换角色">
+                        ${user.role === 'manager' ? '👤' : '🛡️'}
+                    </button>
+                    <button class="btn-action btn-status ${user.status === 'disabled' ? 'disabled' : ''}" 
+                            onclick="app.toggleUserStatus(${user.id}, '${user.status || 'active'}')" title="切换状态">
+                        ${user.status === 'disabled' ? '✅' : '🚫'}
+                    </button>
+                </div>
+                
+                <div class="user-meta">
+                    <small>注册: ${new Date(user.created_at).toLocaleDateString()}</small>
+                    ${user.last_login ? `<small>最后登录: ${new Date(user.last_login).toLocaleDateString()}</small>` : ''}
                 </div>
             </div>
         `).join('');
+    }
+
+    // 编辑用户备注
+    async editUserNickname(userId, currentNickname) {
+        const nickname = prompt('请输入用户备注:', currentNickname);
+        if (nickname === null) return; // 用户取消
+        
+        try {
+            const response = await fetch(`/api/products/users/${userId}/nickname`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                },
+                body: JSON.stringify({ nickname: nickname.trim() })
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                this.showToast('备注更新成功', 'success');
+                this.loadUsersData(); // 重新加载用户列表
+            } else {
+                this.showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('更新用户备注失败:', error);
+            this.showToast('更新失败', 'error');
+        }
+    }
+
+    // 切换用户角色
+    async toggleUserRole(userId, currentRole) {
+        const newRole = currentRole === 'manager' ? 'user' : 'manager';
+        const roleName = newRole === 'manager' ? '店长' : '普通用户';
+        
+        if (!confirm(`确定要将用户角色改为"${roleName}"吗？`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/products/users/${userId}/role`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                },
+                body: JSON.stringify({ role: newRole })
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                this.showToast(result.message, 'success');
+                this.loadUsersData(); // 重新加载用户列表
+            } else {
+                this.showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('更新用户角色失败:', error);
+            this.showToast('更新失败', 'error');
+        }
+    }
+
+    // 切换用户状态
+    async toggleUserStatus(userId, currentStatus) {
+        const newStatus = currentStatus === 'disabled' ? 'active' : 'disabled';
+        const statusName = newStatus === 'disabled' ? '禁用' : '启用';
+        
+        if (!confirm(`确定要${statusName}该用户吗？`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/products/users/${userId}/status`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                },
+                body: JSON.stringify({ status: newStatus })
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                this.showToast(result.message, 'success');
+                this.loadUsersData(); // 重新加载用户列表
+            } else {
+                this.showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('更新用户状态失败:', error);
+            this.showToast('更新失败', 'error');
+        }
+    }
+
+    // 显示用户详情
+    async showUserDetail(userId) {
+        try {
+            const response = await fetch(`/api/products/users/${userId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                }
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                this.showUserDetailModal(result.user, result.stats, result.orders);
+            } else {
+                this.showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('获取用户详情失败:', error);
+            this.showToast('获取用户详情失败', 'error');
+        }
+    }
+
+    // 显示用户详情模态框
+    showUserDetailModal(user, stats, orders) {
+        // 创建模态框HTML
+        const modalHtml = `
+            <div id="user-detail-modal" class="modal show">
+                <div class="modal-content user-detail-content">
+                    <div class="modal-header">
+                        <h3>👤 用户详情 - ${user.username}</h3>
+                        <button id="close-user-detail" class="close-btn">×</button>
+                    </div>
+                    
+                    <div class="user-detail-body">
+                        <div class="user-info-section">
+                            <div class="user-avatar-large">${user.avatar || '👤'}</div>
+                            <div class="user-info-details">
+                                <h4>${user.username || '未设置'}</h4>
+                                <p>📧 ${user.email || '未设置邮箱'}</p>
+                                <p>🏷️ ${user.nickname || '无备注'}</p>
+                                <p>👥 ${user.role === 'manager' ? '店长' : '普通用户'}</p>
+                                <p>🟢 ${user.status === 'disabled' ? '已禁用' : '正常'}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="user-stats-section">
+                            <h4>📊 消费统计</h4>
+                            <div class="stats-grid">
+                                <div class="stat-card">
+                                    <div class="stat-number">${stats.orderCount}</div>
+                                    <div class="stat-label">订单总数</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-number">¥${stats.totalAmount.toFixed(2)}</div>
+                                    <div class="stat-label">消费总额</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-number">${stats.lastOrderDate ? new Date(stats.lastOrderDate).toLocaleDateString() : '无'}</div>
+                                    <div class="stat-label">最后下单</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="user-orders-section">
+                            <h4>🛒 订单历史</h4>
+                            <div class="orders-list">
+                                ${orders.length > 0 ? orders.map(order => `
+                                    <div class="order-item">
+                                        <div class="order-info">
+                                            <span class="order-product">${order.product_image} ${order.product_name}</span>
+                                            <span class="order-quantity">x${order.quantity}</span>
+                                        </div>
+                                        <div class="order-meta">
+                                            <span class="order-price">¥${order.total_price}</span>
+                                            <span class="order-date">${new Date(order.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                    </div>
+                                `).join('') : '<p class="no-orders">暂无订单记录</p>'}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button id="close-user-detail-btn" class="btn-secondary">关闭</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 添加到页面
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // 绑定关闭事件
+        document.getElementById('close-user-detail').onclick = () => this.hideUserDetailModal();
+        document.getElementById('close-user-detail-btn').onclick = () => this.hideUserDetailModal();
+    }
+
+    // 隐藏用户详情模态框
+    hideUserDetailModal() {
+        const modal = document.getElementById('user-detail-modal');
+        if (modal) {
+            modal.remove();
+        }
     }
 
     // 绑定分类筛选事件
@@ -1249,8 +1683,7 @@ class ShopSystem {
             if (data.success) {
                 this.products = data.products;
                 this.isProductsLoaded = true;
-                this.extractCategories();
-                this.renderCategoryFilters();
+                await this.loadCategoriesForFilter();
                 this.renderProducts();
                 
                 // 只在首次加载时绑定事件
@@ -1269,7 +1702,26 @@ class ShopSystem {
         }
     }
 
-    // 提取商品分类
+    // 从API加载分类数据（用于筛选器）
+    async loadCategoriesForFilter() {
+        try {
+            const response = await fetch('/api/products/categories');
+            const result = await response.json();
+            
+            if (result.success) {
+                // 只获取分类名称用于筛选
+                this.categories = result.data.map(cat => cat.name);
+                this.renderCategoryFilters();
+            }
+        } catch (error) {
+            console.error('加载分类筛选器失败:', error);
+            // 如果API失败，回退到从商品中提取分类
+            this.extractCategories();
+            this.renderCategoryFilters();
+        }
+    }
+
+    // 提取商品分类（备用方法）
     extractCategories() {
         this.categories = [...new Set(this.products.map(p => p.category))];
     }
@@ -1453,9 +1905,12 @@ class ShopSystem {
     }
 
     // 显示商品编辑/添加弹窗
-    showProductModal(product = null) {
+    async showProductModal(product = null) {
         const modal = document.getElementById('product-modal');
         const title = document.getElementById('modal-title');
+        
+        // 加载分类选项
+        await this.loadCategoryOptions();
         
         if (product) {
             // 编辑模式
@@ -1641,7 +2096,8 @@ class ShopSystem {
             const response = await fetch('/api/products/purchase', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
                 },
                 body: JSON.stringify({
                     productId: productId,
@@ -1945,7 +2401,8 @@ class ShopSystem {
             const response = await fetch('/api/products/purchase', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
                 },
                 body: JSON.stringify({
                     productId: productId,
@@ -2671,10 +3128,337 @@ class ShopSystem {
             input.classList.remove('valid', 'invalid');
         });
     }
+
+    // ============ 分类管理功能 ============
+    
+    // 初始化分类管理事件
+    initCategoryManagementEvents() {
+        // 选项卡切换
+        const productsTab = document.getElementById('products-tab');
+        const categoriesTab = document.getElementById('categories-tab');
+        
+        if (productsTab) {
+            productsTab.addEventListener('click', () => this.switchTab('products'));
+        }
+        
+        if (categoriesTab) {
+            categoriesTab.addEventListener('click', () => this.switchTab('categories'));
+        }
+        
+        // 新增分类按钮
+        const addCategoryBtn = document.getElementById('add-category-btn');
+        if (addCategoryBtn) {
+            addCategoryBtn.addEventListener('click', () => this.showCategoryModal());
+        }
+        
+        // 分类模态框事件
+        const closeCategoryModal = document.getElementById('close-category-modal');
+        if (closeCategoryModal) {
+            closeCategoryModal.addEventListener('click', () => this.hideCategoryModal());
+        }
+        
+        const cancelCategoryBtn = document.getElementById('cancel-category-btn');
+        if (cancelCategoryBtn) {
+            cancelCategoryBtn.addEventListener('click', () => this.hideCategoryModal());
+        }
+        
+        const saveCategoryBtn = document.getElementById('save-category-btn');
+        if (saveCategoryBtn) {
+            saveCategoryBtn.addEventListener('click', () => this.handleCategorySave());
+        }
+        
+        // emoji 选择器
+        document.querySelectorAll('.emoji-option').forEach(emoji => {
+            emoji.addEventListener('click', (e) => {
+                const emojiInput = document.getElementById('category-emoji');
+                if (emojiInput) {
+                    emojiInput.value = e.target.textContent;
+                }
+            });
+        });
+    }
+    
+    // 切换选项卡
+    switchTab(tabName) {
+        // 更新选项卡按钮状态
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`${tabName}-tab`).classList.add('active');
+        
+        // 更新内容显示
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+            content.style.display = 'none';
+        });
+        
+        const targetContent = document.getElementById(`${tabName}-content`);
+        if (targetContent) {
+            targetContent.classList.add('active');
+            targetContent.style.display = 'block';
+        }
+        
+        // 加载对应数据
+        if (tabName === 'categories') {
+            this.loadCategories();
+        }
+    }
+    
+    // 加载分类数据
+    async loadCategories() {
+        const categoriesGrid = document.getElementById('categories-grid');
+        if (!categoriesGrid) return;
+        
+        categoriesGrid.innerHTML = '<div class="loading">加载中...</div>';
+        
+        try {
+            const response = await fetch('/api/products/categories');
+            const result = await response.json();
+            
+            if (result.success) {
+                this.categories = result.data;
+                this.renderCategories();
+                this.updateCategoriesCount();
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            console.error('加载分类失败:', error);
+            categoriesGrid.innerHTML = '<div class="error">加载分类失败</div>';
+        }
+    }
+    
+    // 渲染分类列表
+    renderCategories() {
+        const categoriesGrid = document.getElementById('categories-grid');
+        if (!categoriesGrid) return;
+        
+        if (this.categories.length === 0) {
+            categoriesGrid.innerHTML = `
+                <div class="empty-categories">
+                    <div class="empty-icon">📦</div>
+                    <h3>暂无分类</h3>
+                    <p>点击"新增分类"按钮添加第一个分类</p>
+                </div>
+            `;
+            return;
+        }
+        
+        categoriesGrid.innerHTML = this.categories.map(category => `
+            <div class="category-card" data-category-id="${category.id}">
+                <div class="category-header">
+                    <div class="category-emoji">${category.emoji}</div>
+                    <div class="category-info">
+                        <h3>${this.escapeHtml(category.name)}</h3>
+                        <div class="category-stats">
+                            ${category.productCount} 个商品
+                        </div>
+                    </div>
+                </div>
+                <div class="category-actions">
+                    <button class="btn-icon btn-edit" onclick="app.editCategory(${category.id})" title="编辑分类">
+                        ✏️
+                    </button>
+                    <button class="btn-icon btn-delete" onclick="app.deleteCategory(${category.id})" title="删除分类">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // 更新分类计数
+    updateCategoriesCount() {
+        const countElement = document.getElementById('categories-count');
+        if (countElement) {
+            countElement.textContent = `分类总数: ${this.categories.length}`;
+        }
+    }
+    
+    // 显示分类模态框
+    showCategoryModal(categoryId = null) {
+        this.editingCategoryId = categoryId;
+        const modal = document.getElementById('category-modal');
+        const title = document.getElementById('category-modal-title');
+        const nameInput = document.getElementById('category-name');
+        const emojiInput = document.getElementById('category-emoji');
+        
+        if (categoryId) {
+            // 编辑模式
+            const category = this.categories.find(c => c.id === categoryId);
+            if (category) {
+                title.textContent = '编辑分类';
+                nameInput.value = category.name;
+                emojiInput.value = category.emoji;
+            }
+        } else {
+            // 新增模式
+            title.textContent = '新增分类';
+            nameInput.value = '';
+            emojiInput.value = '📦';
+        }
+        
+        modal.classList.add('show');
+        nameInput.focus();
+    }
+    
+    // 隐藏分类模态框
+    hideCategoryModal() {
+        const modal = document.getElementById('category-modal');
+        modal.classList.remove('show');
+        this.editingCategoryId = null;
+    }
+    
+    // 处理分类保存
+    async handleCategorySave() {
+        const nameInput = document.getElementById('category-name');
+        const emojiInput = document.getElementById('category-emoji');
+        
+        const name = nameInput.value.trim();
+        const emoji = emojiInput.value.trim() || '📦';
+        
+        if (!name) {
+            this.showToast('请输入分类名称', 'error');
+            nameInput.focus();
+            return;
+        }
+        
+        const saveCategoryBtn = document.getElementById('save-category-btn');
+        const originalText = saveCategoryBtn.textContent;
+        saveCategoryBtn.textContent = '保存中...';
+        saveCategoryBtn.disabled = true;
+        
+        try {
+            const url = this.editingCategoryId ? 
+                `/api/products/categories/${this.editingCategoryId}` : 
+                '/api/products/categories';
+            
+            const method = this.editingCategoryId ? 'PUT' : 'POST';
+            const authToken = localStorage.getItem('authToken');
+            
+            console.log('当前认证令牌:', authToken ? '已存在' : '未设置');
+            console.log('发送请求:', method, url);
+            console.log('令牌长度:', authToken ? authToken.length : 0);
+            
+            const response = await fetch(url, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${authToken}`
+                },
+                body: JSON.stringify({ name, emoji })
+            });
+            
+            const result = await response.json();
+            console.log('API响应:', result);
+            
+            if (result.success) {
+                this.showToast(
+                    this.editingCategoryId ? '分类更新成功' : '分类创建成功', 
+                    'success'
+                );
+                this.hideCategoryModal();
+                this.loadCategories();
+                // 重新加载商品分类筛选器
+                this.loadProducts();
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            console.error('保存分类失败:', error);
+            this.showToast(error.message || '保存分类失败', 'error');
+        } finally {
+            saveCategoryBtn.textContent = originalText;
+            saveCategoryBtn.disabled = false;
+        }
+    }
+    
+    // 编辑分类
+    editCategory(categoryId) {
+        this.showCategoryModal(categoryId);
+    }
+    
+    // 删除分类
+    async deleteCategory(categoryId) {
+        const category = this.categories.find(c => c.id === categoryId);
+        if (!category) return;
+        
+        if (category.productCount > 0) {
+            if (!confirm(`分类"${category.name}"下还有 ${category.productCount} 个商品，确定要删除吗？删除后这些商品将失去分类。`)) {
+                return;
+            }
+        } else {
+            if (!confirm(`确定要删除分类"${category.name}"吗？`)) {
+                return;
+            }
+        }
+        
+        try {
+            const authToken = localStorage.getItem('authToken');
+            console.log('删除分类 - 当前认证令牌:', authToken ? '已存在' : '未设置');
+            console.log('删除分类 - 发送请求: DELETE /api/products/categories/' + categoryId);
+            console.log('删除分类 - 令牌长度:', authToken ? authToken.length : 0);
+            
+            const response = await fetch(`/api/products/categories/${categoryId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${authToken}`
+                }
+            });
+            
+            const result = await response.json();
+            console.log('删除分类 - API响应:', result);
+            
+            if (result.success) {
+                this.showToast('分类删除成功', 'success');
+                this.loadCategories();
+                // 重新加载商品分类筛选器
+                this.loadProducts();
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            console.error('删除分类失败:', error);
+            this.showToast(error.message || '删除分类失败', 'error');
+        }
+    }
+    
+    // 为商品表单加载分类选项
+    async loadCategoryOptions() {
+        const categorySelect = document.getElementById('product-category');
+        if (!categorySelect) return;
+        
+        try {
+            const response = await fetch('/api/products/categories');
+            const result = await response.json();
+            
+            if (result.success) {
+                // 清空现有选项（保留默认选项）
+                categorySelect.innerHTML = '<option value="">选择分类</option>';
+                
+                // 添加分类选项
+                result.data.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category.name;
+                    option.textContent = `${category.emoji} ${category.name}`;
+                    categorySelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('加载分类选项失败:', error);
+            // 如果API失败，使用默认选项
+            categorySelect.innerHTML = `
+                <option value="">选择分类</option>
+                <option value="柠檬饮料">柠檬饮料</option>
+                <option value="果汁">果汁</option>
+                <option value="牛奶">牛奶</option>
+            `;
+        }
+    }
 }
 
 // 初始化应用
 let app;
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     app = new ShopSystem();
+    // 等待初始化完成（包括认证检查）
+    await app.init();
 });

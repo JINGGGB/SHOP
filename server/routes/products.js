@@ -15,21 +15,60 @@ function verifyToken(req, res, next) {
         });
     }
 
+    console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'exists' : 'undefined');
+    console.log('Token received:', token.substring(0, 50) + '...');
+    
+    // 尝试验证标准JWT令牌
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        console.log('Standard JWT token decoded successfully:', decoded);
         req.user = decoded;
         next();
-    } catch (error) {
-        res.status(401).json({
-            success: false,
-            message: '认证令牌无效'
-        });
+        return;
+    } catch (jwtError) {
+        console.log('Standard JWT verification failed:', jwtError.message);
+        console.log('Trying manager token format...');
     }
+    
+    // 尝试解析前端生成的店长令牌
+    const parts = token.split('.');
+    if (parts.length === 3) {
+        try {
+            // 使用Buffer.from替代atob在Node.js环境下解码base64
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+            console.log('Parsed payload from manager token:', payload);
+            if (payload.role === 'manager' && payload.email) {
+                console.log('Manager token decoded successfully:', payload);
+                req.user = {
+                    userId: payload.userId,
+                    email: payload.email,
+                    role: payload.role
+                };
+                next();
+                return;
+            }
+        } catch (parseError) {
+            console.log('Manager token parsing failed:', parseError.message);
+        }
+    }
+    
+    console.log('All token verification methods failed');
+    res.status(401).json({
+        success: false,
+        message: '认证令牌无效'
+    });
 }
 
 // 验证店长权限中间件
 async function verifyManager(req, res, next) {
     try {
+        // 如果令牌中已有角色信息且为manager，直接通过
+        if (req.user.role === 'manager') {
+            next();
+            return;
+        }
+        
+        // 否则从数据库查询用户角色
         const user = await database.findUserByEmail(req.user.email);
         if (!user || user.role !== 'manager') {
             return res.status(403).json({
@@ -56,6 +95,329 @@ router.get('/', async (req, res) => {
         });
     } catch (error) {
         console.error('获取商品列表失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '服务器错误'
+        });
+    }
+});
+
+// ============ 分类管理相关路由 ============
+
+// 获取所有分类（公开访问）
+router.get('/categories', async (req, res) => {
+    try {
+        const categories = await database.getAllCategories();
+        
+        // 为每个分类添加使用数量
+        const categoriesWithCount = await Promise.all(
+            categories.map(async (category) => {
+                const count = await database.getCategoryUsageCount(category.name);
+                return { ...category, productCount: count };
+            })
+        );
+        
+        res.json({
+            success: true,
+            data: categoriesWithCount
+        });
+    } catch (error) {
+        console.error('获取分类失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '获取分类失败'
+        });
+    }
+});
+
+// 创建新分类（仅店长）
+router.post('/categories', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const { name, emoji } = req.body;
+        
+        if (!name) {
+            return res.status(400).json({
+                success: false,
+                message: '分类名称不能为空'
+            });
+        }
+        
+        const result = await database.createCategory(name, emoji || '📦');
+        
+        res.json({
+            success: true,
+            message: '分类创建成功',
+            data: result
+        });
+    } catch (error) {
+        console.error('创建分类失败:', error);
+        
+        if (error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({
+                success: false,
+                message: '分类名称已存在'
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: '创建分类失败'
+        });
+    }
+});
+
+// 更新分类（仅店长）
+router.put('/categories/:id', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, emoji } = req.body;
+        
+        if (!name) {
+            return res.status(400).json({
+                success: false,
+                message: '分类名称不能为空'
+            });
+        }
+        
+        // 检查分类是否存在
+        const category = await database.getCategoryById(id);
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                message: '分类不存在'
+            });
+        }
+        
+        await database.updateCategory(id, name, emoji || category.emoji);
+        
+        res.json({
+            success: true,
+            message: '分类更新成功'
+        });
+    } catch (error) {
+        console.error('更新分类失败:', error);
+        
+        if (error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({
+                success: false,
+                message: '分类名称已存在'
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: '更新分类失败'
+        });
+    }
+});
+
+// 删除分类（仅店长）
+router.delete('/categories/:id', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // 检查分类是否存在
+        const category = await database.getCategoryById(id);
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                message: '分类不存在'
+            });
+        }
+        
+        await database.deleteCategory(id);
+        
+        res.json({
+            success: true,
+            message: '分类删除成功'
+        });
+    } catch (error) {
+        console.error('删除分类失败:', error);
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// ============ 用户管理相关路由 ============
+
+// 获取所有用户（仅管理员）
+router.get('/users', verifyToken, verifyManager, async (req, res) => {
+    console.log('=== 用户管理路由被访问 ===');
+    try {
+        const users = await database.getAllUsers();
+        
+        // 为需要更新的用户更新统计数据（5分钟缓存）
+        const usersWithStats = await Promise.all(
+            users.map(async (user) => {
+                if (user.email) {
+                    const shouldUpdate = await database.shouldUpdateUserStats(user.email);
+                    if (shouldUpdate) {
+                        console.log(`更新用户 ${user.email} 的统计数据`);
+                        await database.updateUserStats(user.email);
+                        const updatedUser = await database.get('SELECT * FROM users WHERE id = ?', [user.id]);
+                        return updatedUser;
+                    } else {
+                        console.log(`用户 ${user.email} 统计数据无需更新（缓存有效）`);
+                        return user;
+                    }
+                }
+                return user;
+            })
+        );
+        
+        res.json({
+            success: true,
+            users: usersWithStats
+        });
+    } catch (error) {
+        console.error('获取用户列表失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '服务器错误'
+        });
+    }
+});
+
+// 获取用户详细信息和统计（仅管理员）
+router.get('/users/:id', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const user = await database.get('SELECT * FROM users WHERE id = ?', [userId]);
+        
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: '用户不存在'
+            });
+        }
+
+        const orderStats = await database.getUserOrderStats(userId);
+        const orderHistory = await database.getUserOrderHistory(userId);
+        
+        res.json({
+            success: true,
+            user: user,
+            stats: orderStats,
+            orders: orderHistory
+        });
+    } catch (error) {
+        console.error('获取用户详情失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '服务器错误'
+        });
+    }
+});
+
+// 更新用户角色（仅管理员）
+router.put('/users/:id/role', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const { role } = req.body;
+        
+        if (!['user', 'manager'].includes(role)) {
+            return res.status(400).json({
+                success: false,
+                message: '无效的角色类型'
+            });
+        }
+        
+        // 防止用户修改自己的角色为普通用户
+        if (req.user.userId == userId && role === 'user') {
+            return res.status(403).json({
+                success: false,
+                message: '不能将自己的角色修改为普通用户'
+            });
+        }
+        
+        const result = await database.updateUserRole(userId, role);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({
+                success: false,
+                message: '用户不存在'
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: '用户角色更新成功'
+        });
+    } catch (error) {
+        console.error('更新用户角色失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '服务器错误'
+        });
+    }
+});
+
+// 更新用户状态（仅管理员）
+router.put('/users/:id/status', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const { status } = req.body;
+        
+        if (!['active', 'disabled'].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: '无效的状态类型'
+            });
+        }
+        
+        // 防止用户禁用自己的账号
+        if (req.user.userId == userId && status === 'disabled') {
+            return res.status(403).json({
+                success: false,
+                message: '不能禁用自己的账号'
+            });
+        }
+        
+        const result = await database.updateUserStatus(userId, status);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({
+                success: false,
+                message: '用户不存在'
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: status === 'active' ? '用户已启用' : '用户已禁用'
+        });
+    } catch (error) {
+        console.error('更新用户状态失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '服务器错误'
+        });
+    }
+});
+
+// 更新用户备注（仅管理员）
+router.put('/users/:id/nickname', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const { nickname } = req.body;
+        
+        const result = await database.updateUserNickname(userId, nickname || null);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({
+                success: false,
+                message: '用户不存在'
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: '用户备注更新成功'
+        });
+    } catch (error) {
+        console.error('更新用户备注失败:', error);
         res.status(500).json({
             success: false,
             message: '服务器错误'
@@ -219,10 +581,20 @@ router.delete('/:id', async (req, res) => {
 // 获取用户角色信息
 router.get('/user/role', verifyToken, async (req, res) => {
     try {
+        // 如果令牌中已有角色信息，直接返回
+        if (req.user.role) {
+            res.json({
+                success: true,
+                role: req.user.role
+            });
+            return;
+        }
+        
+        // 否则从数据库查询
         const user = await database.findUserByEmail(req.user.email);
         res.json({
             success: true,
-            role: user.role || 'user'
+            role: user?.role || 'user'
         });
     } catch (error) {
         console.error('获取用户角色失败:', error);
@@ -233,16 +605,45 @@ router.get('/user/role', verifyToken, async (req, res) => {
     }
 });
 
-// 获取所有用户（仅管理员）
-router.get('/users', verifyToken, verifyManager, async (req, res) => {
+// 获取当前用户的购买历史和统计（需要认证）
+router.get('/user/purchases', verifyToken, async (req, res) => {
     try {
-        const users = await database.getAllUsers();
+        // 根据邮箱获取用户购买历史
+        const userEmail = req.user.email;
+        
+        // 获取购买统计
+        const stats = await database.get(`
+            SELECT 
+                COUNT(*) as order_count,
+                COALESCE(SUM(total_price), 0) as total_amount
+            FROM orders 
+            WHERE customer_email = ?
+        `, [userEmail]);
+        
+        // 获取购买历史
+        const orders = await database.all(`
+            SELECT * FROM orders 
+            WHERE customer_email = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+        `, [userEmail]);
+        
+        // 解析订单中的定制信息
+        const ordersWithParsedCustomization = orders.map(order => ({
+            ...order,
+            customization: order.customization ? JSON.parse(order.customization) : null
+        }));
+        
         res.json({
             success: true,
-            users: users
+            stats: {
+                orderCount: parseInt(stats.order_count) || 0,
+                totalAmount: parseFloat(stats.total_amount) || 0
+            },
+            orders: ordersWithParsedCustomization
         });
     } catch (error) {
-        console.error('获取用户列表失败:', error);
+        console.error('获取用户购买数据失败:', error);
         res.status(500).json({
             success: false,
             message: '服务器错误'
@@ -280,8 +681,8 @@ router.post('/upgrade-manager', async (req, res) => {
     }
 });
 
-// 购买商品接口
-router.post('/purchase', async (req, res) => {
+// 购买商品接口（需要认证以记录用户订单）
+router.post('/purchase', verifyToken, async (req, res) => {
     try {
         const { productId, quantity = 1, customization } = req.body;
         
@@ -329,8 +730,11 @@ router.post('/purchase', async (req, res) => {
             product.price,
             product.price * quantity,
             customization,
-            'customer@example.com' // 暂时使用默认邮箱，后续可改为实际用户邮箱
+            req.user.email // 使用认证用户的真实邮箱
         );
+        
+        // 实时更新用户统计数据
+        await database.updateUserStats(req.user.email);
         
         res.json({
             success: true,

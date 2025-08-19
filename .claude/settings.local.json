@@ -3,7 +3,11 @@
     "allow": [
       "Bash(node:*)",
       "Bash(curl:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(psql:*)",
+      "Bash(pg_ctl:*)",
+      "Bash(powershell:*)",
+      "Bash(timeout:*)"
     ],
     "deny": []
   }

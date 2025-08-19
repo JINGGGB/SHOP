@@ -133,12 +133,36 @@
             </div>
             
             <div class="page-header">
-                <button id="add-product-btn" class="btn-primary">新增商品</button>
-                <button id="batch-upload-btn" class="btn-secondary">批量上传价格库存</button>
+                <div class="tab-navigation">
+                    <button class="tab-btn active" id="products-tab">商品管理</button>
+                    <button class="tab-btn" id="categories-tab">分类管理</button>
+                </div>
             </div>
             
-            <div class="manager-grid" id="manager-grid">
-                <div class="loading">加载中...</div>
+            <!-- 商品管理内容 -->
+            <div id="products-content" class="tab-content active">
+                <div class="content-header">
+                    <button id="add-product-btn" class="btn-primary">新增商品</button>
+                    <button id="batch-upload-btn" class="btn-secondary">批量上传价格库存</button>
+                </div>
+                
+                <div class="manager-grid" id="manager-grid">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+            
+            <!-- 分类管理内容 -->
+            <div id="categories-content" class="tab-content" style="display: none;">
+                <div class="content-header">
+                    <button id="add-category-btn" class="btn-primary">新增分类</button>
+                    <div class="stats-info">
+                        <span id="categories-count">分类总数: 0</span>
+                    </div>
+                </div>
+                
+                <div class="categories-grid" id="categories-grid">
+                    <div class="loading">加载中...</div>
+                </div>
             </div>
         </div>
 
@@ -225,6 +249,29 @@
                         
                         <button type="submit" class="btn-primary">保存设置</button>
                     </form>
+                    
+                    <!-- 购买统计区域 -->
+                    <div class="purchase-stats-section" id="purchase-stats-section">
+                        <h3>🛒 购买统计</h3>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-number" id="total-orders">0</div>
+                                <div class="stat-label">订单总数</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number" id="total-spent">¥0.00</div>
+                                <div class="stat-label">总消费</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 购买历史区域 -->
+                    <div class="purchase-history-section" id="purchase-history-section">
+                        <h3>📦 购买历史</h3>
+                        <div class="purchase-history-list" id="purchase-history-list">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
                     
                     <!-- 升级为店长区域 -->
                     <div class="upgrade-section" id="upgrade-section">
@@ -497,6 +544,132 @@
             <div class="modal-actions">
                 <button id="batch-upload-confirm-btn" class="btn-primary">批量上传到API</button>
                 <button id="cancel-batch-edit-btn" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分类管理模态框 -->
+    <div id="category-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="category-modal-title">新增分类</h3>
+                <button id="close-category-modal" class="close-btn">×</button>
+            </div>
+            <form id="category-form" class="modal-form">
+                <div class="form-group">
+                    <label for="category-name">分类名称</label>
+                    <input type="text" id="category-name" placeholder="请输入分类名称" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="category-emoji">分类图标</label>
+                    <div class="emoji-input-group">
+                        <input type="text" id="category-emoji" placeholder="📦" maxlength="2">
+                        <div class="emoji-suggestions">
+                            <!-- 水果类 -->
+                            <button type="button" class="emoji-option">🍋</button>
+                            <button type="button" class="emoji-option">🍊</button>
+                            <button type="button" class="emoji-option">🍎</button>
+                            <button type="button" class="emoji-option">🍌</button>
+                            <button type="button" class="emoji-option">🍇</button>
+                            <button type="button" class="emoji-option">🍓</button>
+                            <button type="button" class="emoji-option">🥝</button>
+                            <button type="button" class="emoji-option">🍑</button>
+                            <button type="button" class="emoji-option">🍒</button>
+                            <button type="button" class="emoji-option">🥭</button>
+                            <button type="button" class="emoji-option">🍍</button>
+                            <button type="button" class="emoji-option">🥥</button>
+                            
+                            <!-- 饮品类 -->
+                            <button type="button" class="emoji-option">🥛</button>
+                            <button type="button" class="emoji-option">🍵</button>
+                            <button type="button" class="emoji-option">☕</button>
+                            <button type="button" class="emoji-option">🧋</button>
+                            <button type="button" class="emoji-option">🥤</button>
+                            <button type="button" class="emoji-option">🧃</button>
+                            <button type="button" class="emoji-option">🍶</button>
+                            <button type="button" class="emoji-option">🍺</button>
+                            <button type="button" class="emoji-option">🍷</button>
+                            <button type="button" class="emoji-option">🥃</button>
+                            <button type="button" class="emoji-option">🍸</button>
+                            <button type="button" class="emoji-option">🍹</button>
+                            
+                            <!-- 甜品零食 -->
+                            <button type="button" class="emoji-option">🍪</button>
+                            <button type="button" class="emoji-option">🍰</button>
+                            <button type="button" class="emoji-option">🧁</button>
+                            <button type="button" class="emoji-option">🍮</button>
+                            <button type="button" class="emoji-option">🍭</button>
+                            <button type="button" class="emoji-option">🍬</button>
+                            <button type="button" class="emoji-option">🍫</button>
+                            <button type="button" class="emoji-option">🍿</button>
+                            <button type="button" class="emoji-option">🍩</button>
+                            <button type="button" class="emoji-option">🥧</button>
+                            <button type="button" class="emoji-option">🎂</button>
+                            <button type="button" class="emoji-option">🍯</button>
+                            
+                            <!-- 主食快餐 -->
+                            <button type="button" class="emoji-option">🍔</button>
+                            <button type="button" class="emoji-option">🍟</button>
+                            <button type="button" class="emoji-option">🌭</button>
+                            <button type="button" class="emoji-option">🍕</button>
+                            <button type="button" class="emoji-option">🥪</button>
+                            <button type="button" class="emoji-option">🌮</button>
+                            <button type="button" class="emoji-option">🌯</button>
+                            <button type="button" class="emoji-option">🥙</button>
+                            <button type="button" class="emoji-option">🍞</button>
+                            <button type="button" class="emoji-option">🥐</button>
+                            <button type="button" class="emoji-option">🥖</button>
+                            <button type="button" class="emoji-option">🥨</button>
+                            
+                            <!-- 亚洲美食 -->
+                            <button type="button" class="emoji-option">🍜</button>
+                            <button type="button" class="emoji-option">🍝</button>
+                            <button type="button" class="emoji-option">🍲</button>
+                            <button type="button" class="emoji-option">🍱</button>
+                            <button type="button" class="emoji-option">🍣</button>
+                            <button type="button" class="emoji-option">🍤</button>
+                            <button type="button" class="emoji-option">🥟</button>
+                            <button type="button" class="emoji-option">🥠</button>
+                            <button type="button" class="emoji-option">🍙</button>
+                            <button type="button" class="emoji-option">🍘</button>
+                            <button type="button" class="emoji-option">🥗</button>
+                            <button type="button" class="emoji-option">🍚</button>
+                            
+                            <!-- 蔬菜类 -->
+                            <button type="button" class="emoji-option">🥕</button>
+                            <button type="button" class="emoji-option">🥬</button>
+                            <button type="button" class="emoji-option">🥒</button>
+                            <button type="button" class="emoji-option">🌶️</button>
+                            <button type="button" class="emoji-option">🫑</button>
+                            <button type="button" class="emoji-option">🌽</button>
+                            <button type="button" class="emoji-option">🥦</button>
+                            <button type="button" class="emoji-option">🍆</button>
+                            <button type="button" class="emoji-option">🍅</button>
+                            <button type="button" class="emoji-option">🥑</button>
+                            <button type="button" class="emoji-option">🥔</button>
+                            <button type="button" class="emoji-option">🧄</button>
+                            
+                            <!-- 其他分类 -->
+                            <button type="button" class="emoji-option">📦</button>
+                            <button type="button" class="emoji-option">🛒</button>
+                            <button type="button" class="emoji-option">🏪</button>
+                            <button type="button" class="emoji-option">🎁</button>
+                            <button type="button" class="emoji-option">⭐</button>
+                            <button type="button" class="emoji-option">💝</button>
+                            <button type="button" class="emoji-option">🔥</button>
+                            <button type="button" class="emoji-option">✨</button>
+                            <button type="button" class="emoji-option">🌟</button>
+                            <button type="button" class="emoji-option">💎</button>
+                            <button type="button" class="emoji-option">🏆</button>
+                            <button type="button" class="emoji-option">🎯</button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+            <div class="modal-actions">
+                <button id="save-category-btn" class="btn-primary">保存</button>
+                <button id="cancel-category-btn" class="btn-secondary">取消</button>
             </div>
         </div>
     </div>

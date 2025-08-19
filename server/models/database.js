@@ -1,30 +1,65 @@
-const { Pool } = require('pg');
+const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
+const path = require('path');
 
-// PostgreSQL 连接配置
-const pool = new Pool({
-    user: process.env.DB_USER || 'postgres',
-    host: process.env.DB_HOST || 'localhost',
-    database: process.env.DB_NAME || 'shop_db',
-    password: process.env.DB_PASSWORD || 'password',
-    port: process.env.DB_PORT || 5432,
-});
+// SQLite 数据库文件路径
+const dbPath = path.join(__dirname, '..', 'database', 'app.db');
 
 class Database {
     constructor() {
-        this.pool = pool;
+        this.db = null;
     }
 
     async connect() {
-        try {
-            const client = await this.pool.connect();
-            console.log('PostgreSQL 数据库连接成功');
-            client.release();
-            return true;
-        } catch (err) {
-            console.error('数据库连接失败:', err);
-            throw err;
-        }
+        return new Promise((resolve, reject) => {
+            this.db = new sqlite3.Database(dbPath, (err) => {
+                if (err) {
+                    console.error('数据库连接失败:', err);
+                    reject(err);
+                } else {
+                    console.log('SQLite 数据库连接成功');
+                    // 启用外键约束
+                    this.db.run('PRAGMA foreign_keys = ON');
+                    resolve(true);
+                }
+            });
+        });
+    }
+
+    async run(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.run(sql, params, function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve({ id: this.lastID, changes: this.changes });
+                }
+            });
+        });
+    }
+
+    async get(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.get(sql, params, (err, row) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(row);
+                }
+            });
+        });
+    }
+
+    async all(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.all(sql, params, (err, rows) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(rows);
+                }
+            });
+        });
     }
 
     async createTables() {
@@ -32,81 +67,135 @@ class Database {
             // 创建完整的用户表
             const createUsersTable = `
                 CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     phone TEXT,
                     email TEXT UNIQUE,
                     username TEXT NOT NULL DEFAULT '用户',
                     password TEXT,
                     avatar TEXT DEFAULT '👤',
                     role TEXT DEFAULT 'user',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME
                 )
             `;
 
-            await this.pool.query(createUsersTable);
+            await this.run(createUsersTable);
 
-            // PostgreSQL 不需要手动添加列，因为表已经定义完整
+            // 扩展用户表 - 添加新字段
+            try {
+                await this.run('ALTER TABLE users ADD COLUMN nickname TEXT');
+                console.log('添加nickname字段成功');
+            } catch (error) {
+                if (!error.message.includes('duplicate column name')) {
+                    console.log('nickname字段已存在或添加失败:', error.message);
+                }
+            }
 
+            try {
+                await this.run('ALTER TABLE users ADD COLUMN status TEXT DEFAULT "active"');
+                console.log('添加status字段成功');
+            } catch (error) {
+                if (!error.message.includes('duplicate column name')) {
+                    console.log('status字段已存在或添加失败:', error.message);
+                }
+            }
+
+            try {
+                await this.run('ALTER TABLE users ADD COLUMN total_orders INTEGER DEFAULT 0');
+                console.log('添加total_orders字段成功');
+            } catch (error) {
+                if (!error.message.includes('duplicate column name')) {
+                    console.log('total_orders字段已存在或添加失败:', error.message);
+                }
+            }
+
+            try {
+                await this.run('ALTER TABLE users ADD COLUMN total_spent REAL DEFAULT 0');
+                console.log('添加total_spent字段成功');
+            } catch (error) {
+                if (!error.message.includes('duplicate column name')) {
+                    console.log('total_spent字段已存在或添加失败:', error.message);
+                }
+            }
+
+            try {
+                await this.run('ALTER TABLE users ADD COLUMN stats_updated_at DATETIME');
+                console.log('添加stats_updated_at字段成功');
+            } catch (error) {
+                if (!error.message.includes('duplicate column name')) {
+                    console.log('stats_updated_at字段已存在或添加失败:', error.message);
+                }
+            }
 
             // 创建产品表
             const createProductsTable = `
                 CREATE TABLE IF NOT EXISTS products (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     description TEXT,
-                    price DECIMAL(10,2) NOT NULL,
+                    price REAL NOT NULL,
                     image_url TEXT,
                     category TEXT,
                     stock INTEGER DEFAULT 0,
-                    has_sweetness BOOLEAN DEFAULT FALSE,
-                    has_ice_level BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    has_sweetness INTEGER DEFAULT 0,
+                    has_ice_level INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             `;
 
-            await this.pool.query(createProductsTable);
-
-            // PostgreSQL 已在表创建时包含所有字段
+            await this.run(createProductsTable);
 
             // 创建验证码表
             const createVerificationCodesTable = `
                 CREATE TABLE IF NOT EXISTS verification_codes (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT NOT NULL,
                     code TEXT NOT NULL,
-                    expires_at TIMESTAMP NOT NULL,
-                    used BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    expires_at DATETIME NOT NULL,
+                    used INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             `;
 
-            await this.pool.query(createVerificationCodesTable);
+            await this.run(createVerificationCodesTable);
+
+            // 创建分类表
+            const createCategoriesTable = `
+                CREATE TABLE IF NOT EXISTS categories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    emoji TEXT DEFAULT '📦',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `;
+
+            await this.run(createCategoriesTable);
 
             // 创建订单表
             const createOrdersTable = `
                 CREATE TABLE IF NOT EXISTS orders (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     product_id INTEGER NOT NULL,
                     product_name TEXT NOT NULL,
                     product_image TEXT,
                     quantity INTEGER NOT NULL DEFAULT 1,
-                    price DECIMAL(10,2) NOT NULL,
-                    total_price DECIMAL(10,2) NOT NULL,
+                    price REAL NOT NULL,
+                    total_price REAL NOT NULL,
                     customization TEXT,
                     customer_email TEXT,
                     status TEXT DEFAULT 'pending',
-                    is_read BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_read INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (product_id) REFERENCES products (id)
                 )
             `;
 
-            await this.pool.query(createOrdersTable);
+            await this.run(createOrdersTable);
 
             console.log('users表创建成功');
             console.log('products表创建成功');
             console.log('verification_codes表创建成功');
+            console.log('categories表创建成功');
             console.log('orders表创建成功');
         } catch (error) {
             console.error('创建表失败:', error);
@@ -116,8 +205,7 @@ class Database {
 
     async findUserByPhone(phone) {
         try {
-            const result = await this.pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
-            return result.rows[0] || null;
+            return await this.get('SELECT * FROM users WHERE phone = ?', [phone]);
         } catch (error) {
             throw error;
         }
@@ -125,8 +213,7 @@ class Database {
 
     async findUserByUsername(username) {
         try {
-            const result = await this.pool.query('SELECT * FROM users WHERE username = $1', [username]);
-            return result.rows[0] || null;
+            return await this.get('SELECT * FROM users WHERE username = ?', [username]);
         } catch (error) {
             throw error;
         }
@@ -134,8 +221,7 @@ class Database {
 
     async findUserByPhoneAndName(phone, username) {
         try {
-            const result = await this.pool.query('SELECT * FROM users WHERE phone = $1 AND username = $2', [phone, username]);
-            return result.rows[0] || null;
+            return await this.get('SELECT * FROM users WHERE phone = ? AND username = ?', [phone, username]);
         } catch (error) {
             throw error;
         }
@@ -152,12 +238,12 @@ class Database {
                 hashedPassword = await bcrypt.hash(password, 10);
             }
             
-            const result = await this.pool.query(
-                'INSERT INTO users (phone, username, password, role) VALUES ($1, $2, $3, $4) RETURNING id',
+            const result = await this.run(
+                'INSERT INTO users (phone, username, password, role) VALUES (?, ?, ?, ?)',
                 [phone, username, hashedPassword, role]
             );
             
-            return { id: result.rows[0].id, phone, username, role };
+            return { id: result.id, phone, username, role };
         } catch (error) {
             throw error;
         }
@@ -165,7 +251,7 @@ class Database {
 
     async setUserRole(phone, role) {
         try {
-            await this.pool.query('UPDATE users SET role = $1 WHERE phone = $2', [role, phone]);
+            await this.run('UPDATE users SET role = ? WHERE phone = ?', [role, phone]);
         } catch (error) {
             throw error;
         }
@@ -173,11 +259,11 @@ class Database {
 
     async updateUserProfile(userId, username, avatar, phone) {
         try {
-            const result = await this.pool.query(
-                'UPDATE users SET username = $1, avatar = $2, phone = $3 WHERE id = $4',
+            const result = await this.run(
+                'UPDATE users SET username = ?, avatar = ?, phone = ? WHERE id = ?',
                 [username, avatar, phone, userId]
             );
-            return { changes: result.rowCount };
+            return result;
         } catch (error) {
             throw error;
         }
@@ -185,10 +271,135 @@ class Database {
 
     async getAllUsers() {
         try {
-            const result = await this.pool.query(
-                'SELECT id, phone, username, avatar, role, created_at, last_login FROM users ORDER BY created_at DESC'
+            return await this.all(
+                'SELECT id, phone, email, username, avatar, role, nickname, status, total_orders, total_spent, created_at, last_login FROM users ORDER BY created_at DESC'
             );
-            return result.rows;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    // 获取用户订单统计
+    async getUserOrderStats(userId) {
+        try {
+            const stats = await this.get(`
+                SELECT 
+                    COUNT(*) as order_count,
+                    COALESCE(SUM(total_price), 0) as total_amount,
+                    MAX(created_at) as last_order_date
+                FROM orders 
+                WHERE customer_email = (SELECT email FROM users WHERE id = ?)
+            `, [userId]);
+            
+            return {
+                orderCount: parseInt(stats.order_count) || 0,
+                totalAmount: parseFloat(stats.total_amount) || 0,
+                lastOrderDate: stats.last_order_date
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    // 获取用户订单历史
+    async getUserOrderHistory(userId) {
+        try {
+            const orders = await this.all(`
+                SELECT * FROM orders 
+                WHERE customer_email = (SELECT email FROM users WHERE id = ?)
+                ORDER BY created_at DESC
+            `, [userId]);
+            
+            return orders.map(order => ({
+                ...order,
+                customization: order.customization ? JSON.parse(order.customization) : null
+            }));
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    // 更新用户统计数据
+    async updateUserStats(userEmail) {
+        try {
+            const stats = await this.get(`
+                SELECT 
+                    COUNT(*) as order_count,
+                    COALESCE(SUM(total_price), 0) as total_amount
+                FROM orders 
+                WHERE customer_email = ?
+            `, [userEmail]);
+            
+            await this.run(`
+                UPDATE users 
+                SET total_orders = ?, total_spent = ?, stats_updated_at = CURRENT_TIMESTAMP
+                WHERE email = ?
+            `, [stats.order_count, stats.total_amount, userEmail]);
+            
+            return true;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    // 检查用户统计数据是否需要更新（5分钟缓存）
+    async shouldUpdateUserStats(userEmail) {
+        try {
+            const user = await this.get(`
+                SELECT stats_updated_at 
+                FROM users 
+                WHERE email = ?
+            `, [userEmail]);
+            
+            if (!user || !user.stats_updated_at) {
+                return true; // 从未更新过，需要更新
+            }
+            
+            const lastUpdated = new Date(user.stats_updated_at);
+            const now = new Date();
+            const diffMinutes = (now - lastUpdated) / (1000 * 60);
+            
+            return diffMinutes > 5; // 超过5分钟才更新
+        } catch (error) {
+            console.error('检查统计更新时间失败:', error);
+            return true; // 出错时默认更新
+        }
+    }
+
+    // 更新用户备注
+    async updateUserNickname(userId, nickname) {
+        try {
+            const result = await this.run(
+                'UPDATE users SET nickname = ? WHERE id = ?',
+                [nickname, userId]
+            );
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    // 更新用户状态
+    async updateUserStatus(userId, status) {
+        try {
+            const result = await this.run(
+                'UPDATE users SET status = ? WHERE id = ?',
+                [status, userId]
+            );
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    // 更新用户角色
+    async updateUserRole(userId, role) {
+        try {
+            const result = await this.run(
+                'UPDATE users SET role = ? WHERE id = ?',
+                [role, userId]
+            );
+            return result;
         } catch (error) {
             throw error;
         }
@@ -196,8 +407,7 @@ class Database {
 
     async verifyPassword(userId, password) {
         try {
-            const result = await this.pool.query('SELECT password FROM users WHERE id = $1', [userId]);
-            const user = result.rows[0];
+            const user = await this.get('SELECT password FROM users WHERE id = ?', [userId]);
             
             if (!user || !user.password) {
                 return false; // 用户不存在或没有设置密码
@@ -213,11 +423,11 @@ class Database {
     async updatePassword(userId, newPassword) {
         try {
             const hashedPassword = await bcrypt.hash(newPassword, 10);
-            const result = await this.pool.query(
-                'UPDATE users SET password = $1 WHERE id = $2',
+            const result = await this.run(
+                'UPDATE users SET password = ? WHERE id = ?',
                 [hashedPassword, userId]
             );
-            return { changes: result.rowCount };
+            return result;
         } catch (error) {
             throw error;
         }
@@ -225,19 +435,16 @@ class Database {
 
     async hasPassword(userId) {
         try {
-            const result = await this.pool.query('SELECT password FROM users WHERE id = $1', [userId]);
-            const user = result.rows[0];
+            const user = await this.get('SELECT password FROM users WHERE id = ?', [userId]);
             return user && user.password !== null;
         } catch (error) {
             throw error;
         }
     }
 
-
     async findUserByEmail(email) {
         try {
-            const result = await this.pool.query('SELECT * FROM users WHERE email = $1', [email]);
-            return result.rows[0] || null;
+            return await this.get('SELECT * FROM users WHERE email = ?', [email]);
         } catch (error) {
             throw error;
         }
@@ -280,7 +487,7 @@ class Database {
 
     async setUserRoleByEmail(email, role) {
         try {
-            await this.pool.query('UPDATE users SET role = $1 WHERE email = $2', [role, email]);
+            await this.run('UPDATE users SET role = ? WHERE email = ?', [role, email]);
         } catch (error) {
             throw error;
         }
@@ -298,13 +505,13 @@ class Database {
                 hashedPassword = await bcrypt.hash(password, 10);
             }
             
-            const result = await this.pool.query(
-                'INSERT INTO users (email, username, password, role) VALUES ($1, $2, $3, $4) RETURNING id',
+            const result = await this.run(
+                'INSERT INTO users (email, username, password, role) VALUES (?, ?, ?, ?)',
                 [email, username, hashedPassword, role]
             );
             
             console.log(`创建用户: ${email}, 角色: ${role}`);
-            return { id: result.rows[0].id, email, username, role };
+            return { id: result.id, email, username, role };
         } catch (error) {
             throw error;
         }
@@ -312,7 +519,7 @@ class Database {
 
     async updateLastLogin(email) {
         try {
-            await this.pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE email = $1', [email]);
+            await this.run('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE email = ?', [email]);
         } catch (error) {
             throw error;
         }
@@ -321,18 +528,18 @@ class Database {
     async saveVerificationCode(email, code, expiresAt) {
         try {
             // 先清理该邮箱的旧验证码
-            await this.pool.query(
-                'UPDATE verification_codes SET used = TRUE WHERE email = $1 AND used = FALSE',
+            await this.run(
+                'UPDATE verification_codes SET used = 1 WHERE email = ? AND used = 0',
                 [email]
             );
 
             // 插入新验证码
-            const result = await this.pool.query(
-                'INSERT INTO verification_codes (email, code, expires_at) VALUES ($1, $2, $3) RETURNING id',
+            const result = await this.run(
+                'INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?)',
                 [email, code, expiresAt]
             );
             
-            return { id: result.rows[0].id };
+            return { id: result.id };
         } catch (error) {
             throw error;
         }
@@ -342,12 +549,11 @@ class Database {
         try {
             const query = `
                 SELECT * FROM verification_codes 
-                WHERE email = $1 AND code = $2 AND used = FALSE AND expires_at > NOW()
+                WHERE email = ? AND code = ? AND used = 0 AND expires_at > datetime('now')
                 ORDER BY created_at DESC LIMIT 1
             `;
             
-            const result = await this.pool.query(query, [email, code]);
-            return result.rows[0] || null;
+            return await this.get(query, [email, code]);
         } catch (error) {
             throw error;
         }
@@ -355,7 +561,7 @@ class Database {
 
     async markVerificationCodeAsUsed(id) {
         try {
-            await this.pool.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [id]);
+            await this.run('UPDATE verification_codes SET used = 1 WHERE id = ?', [id]);
         } catch (error) {
             throw error;
         }
@@ -363,7 +569,7 @@ class Database {
 
     async cleanExpiredCodes() {
         try {
-            await this.pool.query('DELETE FROM verification_codes WHERE expires_at < NOW()');
+            await this.run('DELETE FROM verification_codes WHERE expires_at < datetime("now")');
         } catch (error) {
             throw error;
         }
@@ -373,12 +579,11 @@ class Database {
         try {
             const query = `
                 SELECT * FROM verification_codes 
-                WHERE email = $1 AND created_at > NOW() - INTERVAL '${minutes} minutes'
+                WHERE email = ? AND created_at > datetime('now', '-${minutes} minutes')
                 ORDER BY created_at DESC LIMIT 1
             `;
             
-            const result = await this.pool.query(query, [email]);
-            return result.rows[0] || null;
+            return await this.get(query, [email]);
         } catch (error) {
             throw error;
         }
@@ -387,8 +592,7 @@ class Database {
     // 商品相关方法
     async getAllProducts() {
         try {
-            const result = await this.pool.query('SELECT * FROM products ORDER BY created_at DESC');
-            return result.rows;
+            return await this.all('SELECT * FROM products ORDER BY created_at DESC');
         } catch (error) {
             throw error;
         }
@@ -396,8 +600,7 @@ class Database {
 
     async getProductById(id) {
         try {
-            const result = await this.pool.query('SELECT * FROM products WHERE id = $1', [id]);
-            return result.rows[0] || null;
+            return await this.get('SELECT * FROM products WHERE id = ?', [id]);
         } catch (error) {
             throw error;
         }
@@ -405,11 +608,11 @@ class Database {
 
     async createProduct(name, description, price, imageUrl, category, stock, hasSweetness = false, hasIceLevel = false) {
         try {
-            const result = await this.pool.query(
-                'INSERT INTO products (name, description, price, image_url, category, stock, has_sweetness, has_ice_level) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-                [name, description, price, imageUrl, category, stock, hasSweetness, hasIceLevel]
+            const result = await this.run(
+                'INSERT INTO products (name, description, price, image_url, category, stock, has_sweetness, has_ice_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, description, price, imageUrl, category, stock, hasSweetness ? 1 : 0, hasIceLevel ? 1 : 0]
             );
-            return { id: result.rows[0].id };
+            return { id: result.id };
         } catch (error) {
             throw error;
         }
@@ -417,7 +620,10 @@ class Database {
 
     async clearAllProducts() {
         try {
-            await this.pool.query('DELETE FROM products');
+            // 先删除引用商品的订单
+            await this.run('DELETE FROM orders');
+            // 再删除商品
+            await this.run('DELETE FROM products');
             console.log('清理旧商品数据完成');
         } catch (error) {
             throw error;
@@ -427,6 +633,29 @@ class Database {
     async initSampleProducts() {
         // 先清理旧数据
         await this.clearAllProducts();
+        
+        // 删除并重新创建 products 表以确保正确的结构
+        try {
+            await this.run('DROP TABLE IF EXISTS products');
+            const createProductsTable = `
+                CREATE TABLE IF NOT EXISTS products (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    price REAL NOT NULL,
+                    image_url TEXT,
+                    category TEXT,
+                    stock INTEGER DEFAULT 0,
+                    has_sweetness INTEGER DEFAULT 0,
+                    has_ice_level INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `;
+            await this.run(createProductsTable);
+            console.log('重新创建 products 表成功');
+        } catch (error) {
+            console.error('重新创建表失败:', error);
+        }
         
         const products = [
             // 柠檬饮料分类
@@ -516,11 +745,11 @@ class Database {
 
     async updateProduct(id, name, description, price, imageUrl, category, stock, hasSweetness = false, hasIceLevel = false) {
         try {
-            const result = await this.pool.query(
-                'UPDATE products SET name = $1, description = $2, price = $3, image_url = $4, category = $5, stock = $6, has_sweetness = $7, has_ice_level = $8 WHERE id = $9',
-                [name, description, price, imageUrl, category, stock, hasSweetness, hasIceLevel, id]
+            const result = await this.run(
+                'UPDATE products SET name = ?, description = ?, price = ?, image_url = ?, category = ?, stock = ?, has_sweetness = ?, has_ice_level = ? WHERE id = ?',
+                [name, description, price, imageUrl, category, stock, hasSweetness ? 1 : 0, hasIceLevel ? 1 : 0, id]
             );
-            return { changes: result.rowCount };
+            return result;
         } catch (error) {
             throw error;
         }
@@ -528,11 +757,11 @@ class Database {
 
     async updateProductStock(id, newStock) {
         try {
-            const result = await this.pool.query(
-                'UPDATE products SET stock = $1 WHERE id = $2',
+            const result = await this.run(
+                'UPDATE products SET stock = ? WHERE id = ?',
                 [newStock, id]
             );
-            return { changes: result.rowCount, newStock: newStock };
+            return { changes: result.changes, newStock: newStock };
         } catch (error) {
             throw error;
         }
@@ -540,8 +769,8 @@ class Database {
 
     async deleteProduct(id) {
         try {
-            const result = await this.pool.query('DELETE FROM products WHERE id = $1', [id]);
-            return { changes: result.rowCount };
+            const result = await this.run('DELETE FROM products WHERE id = ?', [id]);
+            return result;
         } catch (error) {
             throw error;
         }
@@ -550,11 +779,11 @@ class Database {
     // 订单相关方法
     async createOrder(productId, productName, productImage, quantity, price, totalPrice, customization, customerEmail) {
         try {
-            const result = await this.pool.query(
-                'INSERT INTO orders (product_id, product_name, product_image, quantity, price, total_price, customization, customer_email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
+            const result = await this.run(
+                'INSERT INTO orders (product_id, product_name, product_image, quantity, price, total_price, customization, customer_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [productId, productName, productImage, quantity, price, totalPrice, JSON.stringify(customization), customerEmail]
             );
-            return { id: result.rows[0].id };
+            return { id: result.id };
         } catch (error) {
             throw error;
         }
@@ -562,9 +791,9 @@ class Database {
 
     async getAllOrders() {
         try {
-            const result = await this.pool.query('SELECT * FROM orders ORDER BY created_at DESC');
+            const orders = await this.all('SELECT * FROM orders ORDER BY created_at DESC');
             // 解析customization JSON
-            const ordersWithParsedCustomization = result.rows.map(order => ({
+            const ordersWithParsedCustomization = orders.map(order => ({
                 ...order,
                 customization: order.customization ? JSON.parse(order.customization) : null
             }));
@@ -576,8 +805,8 @@ class Database {
 
     async getUnreadOrdersCount() {
         try {
-            const result = await this.pool.query('SELECT COUNT(*) as count FROM orders WHERE is_read = FALSE');
-            return parseInt(result.rows[0].count);
+            const result = await this.get('SELECT COUNT(*) as count FROM orders WHERE is_read = 0');
+            return parseInt(result.count);
         } catch (error) {
             throw error;
         }
@@ -585,8 +814,8 @@ class Database {
 
     async markOrderAsRead(orderId) {
         try {
-            const result = await this.pool.query('UPDATE orders SET is_read = TRUE WHERE id = $1', [orderId]);
-            return { changes: result.rowCount };
+            const result = await this.run('UPDATE orders SET is_read = 1 WHERE id = ?', [orderId]);
+            return result;
         } catch (error) {
             throw error;
         }
@@ -594,10 +823,110 @@ class Database {
 
     async markAllOrdersAsRead() {
         try {
-            const result = await this.pool.query('UPDATE orders SET is_read = TRUE WHERE is_read = FALSE');
-            return { changes: result.rowCount };
+            const result = await this.run('UPDATE orders SET is_read = 1 WHERE is_read = 0');
+            return result;
         } catch (error) {
             throw error;
+        }
+    }
+
+    // 分类相关方法
+    async getAllCategories() {
+        try {
+            return await this.all('SELECT * FROM categories ORDER BY created_at ASC');
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async getCategoryById(id) {
+        try {
+            return await this.get('SELECT * FROM categories WHERE id = ?', [id]);
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async createCategory(name, emoji = '📦') {
+        try {
+            const result = await this.run(
+                'INSERT INTO categories (name, emoji) VALUES (?, ?)',
+                [name, emoji]
+            );
+            return { id: result.id, name, emoji };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async updateCategory(id, name, emoji) {
+        try {
+            const result = await this.run(
+                'UPDATE categories SET name = ?, emoji = ? WHERE id = ?',
+                [name, emoji, id]
+            );
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async deleteCategory(id) {
+        try {
+            // 检查是否有商品使用该分类
+            const productsCount = await this.get(
+                'SELECT COUNT(*) as count FROM products WHERE category = (SELECT name FROM categories WHERE id = ?)',
+                [id]
+            );
+            
+            if (productsCount.count > 0) {
+                throw new Error(`无法删除分类：还有 ${productsCount.count} 个商品使用此分类`);
+            }
+            
+            const result = await this.run('DELETE FROM categories WHERE id = ?', [id]);
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async getCategoryUsageCount(categoryName) {
+        try {
+            const result = await this.get(
+                'SELECT COUNT(*) as count FROM products WHERE category = ?',
+                [categoryName]
+            );
+            return parseInt(result.count);
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async initDefaultCategories() {
+        try {
+            // 检查是否已有分类
+            const existingCategories = await this.getAllCategories();
+            if (existingCategories.length > 0) {
+                return; // 已有分类，跳过初始化
+            }
+
+            const defaultCategories = [
+                { name: '柠檬饮料', emoji: '🍋' },
+                { name: '果汁', emoji: '🍊' },
+                { name: '牛奶', emoji: '🥛' },
+                { name: '茶饮', emoji: '🍵' },
+                { name: '咖啡', emoji: '☕' },
+                { name: '小食', emoji: '🍪' }
+            ];
+
+            for (const category of defaultCategories) {
+                await this.createCategory(category.name, category.emoji);
+                console.log(`默认分类 "${category.name}" 创建成功`);
+            }
+            
+            console.log('默认分类初始化完成');
+        } catch (error) {
+            console.error('初始化默认分类失败:', error);
         }
     }
 }
@@ -618,6 +947,9 @@ async function initializeDatabase() {
             await database.createUserByEmail('guest@shop.com', '访客用户');
             console.log('默认测试用户创建成功');
         }
+        
+        // 初始化默认分类
+        await database.initDefaultCategories();
         
         // 初始化示例商品数据
         await database.initSampleProducts();

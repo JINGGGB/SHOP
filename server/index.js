@@ -10,7 +10,7 @@ const { initializeDatabase } = require('./models/database');
 const emailService = require('./services/emailService');
 
 const app = express();
-const PORT = process.env.PORT || 5050;
+const PORT = process.env.PORT || 3000;
 
 // 中间件
 app.use(cors());
