@@ -256,7 +256,7 @@ router.get('/users', verifyToken, verifyManager, async (req, res) => {
                     if (shouldUpdate) {
                         console.log(`更新用户 ${user.email} 的统计数据`);
                         await database.updateUserStats(user.email);
-                        const updatedUser = await database.get('SELECT * FROM users WHERE id = ?', [user.id]);
+                        const updatedUser = await database.get('SELECT * FROM users WHERE id = $1', [user.id]);
                         return updatedUser;
                     } else {
                         console.log(`用户 ${user.email} 统计数据无需更新（缓存有效）`);
@@ -284,7 +284,7 @@ router.get('/users', verifyToken, verifyManager, async (req, res) => {
 router.get('/users/:id', verifyToken, verifyManager, async (req, res) => {
     try {
         const userId = req.params.id;
-        const user = await database.get('SELECT * FROM users WHERE id = ?', [userId]);
+        const user = await database.get('SELECT * FROM users WHERE id = $1', [userId]);
         
         if (!user) {
             return res.status(404).json({
@@ -425,6 +425,54 @@ router.put('/users/:id/nickname', verifyToken, verifyManager, async (req, res) =
     }
 });
 
+// 删除用户（仅管理员）
+router.delete('/users/:id', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const userId = req.params.id;
+        
+        // 防止用户删除自己的账号
+        if (req.user.userId == userId) {
+            return res.status(403).json({
+                success: false,
+                message: '不能删除自己的账号'
+            });
+        }
+        
+        // 检查用户是否存在
+        const user = await database.get('SELECT * FROM users WHERE id = $1', [userId]);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: '用户不存在'
+            });
+        }
+        
+        // 删除用户相关的订单记录
+        await database.run('DELETE FROM orders WHERE customer_email = $1', [user.email]);
+        
+        // 删除用户
+        const result = await database.run('DELETE FROM users WHERE id = $1', [userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({
+                success: false,
+                message: '删除失败，用户不存在'
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: '用户已成功删除'
+        });
+    } catch (error) {
+        console.error('删除用户失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '服务器错误'
+        });
+    }
+});
+
 // 获取单个商品详情（公开访问）
 router.get('/:id', async (req, res) => {
     try {
@@ -473,26 +521,29 @@ router.get('/categories/list', async (req, res) => {
 // 创建新商品（仅店长 - 暂时开放无需认证）
 router.post('/', async (req, res) => {
     try {
-        const { name, description, price, imageUrl, category, stock, hasSweetness, hasIceLevel } = req.body;
-        
+        const { name, description, price, imageUrl, category, stock, hasSweetness, hasIceLevel, isHot, hotPriority, hotBadgeText } = req.body;
+
         if (!name || !price || !category) {
             return res.status(400).json({
                 success: false,
                 message: '商品名称、价格和分类为必填项'
             });
         }
-        
+
         const product = await database.createProduct(
-            name, 
-            description, 
-            price, 
-            imageUrl, 
-            category, 
+            name,
+            description,
+            price,
+            imageUrl,
+            category,
             stock || 0,
             hasSweetness || false,
-            hasIceLevel || false
+            hasIceLevel || false,
+            isHot || false,
+            hotPriority || 50,
+            hotBadgeText || '🔥爆款'
         );
-        
+
         res.json({
             success: true,
             message: '商品创建成功',
@@ -507,44 +558,79 @@ router.post('/', async (req, res) => {
     }
 });
 
-// 更新商品（仅店长 - 暂时开放无需认证）
+// 更新商品（仅店长 - 暂时开放测试）
 router.put('/:id', async (req, res) => {
     try {
         const productId = req.params.id;
-        const { name, description, price, imageUrl, category, stock, hasSweetness, hasIceLevel } = req.body;
-        
+        const { name, description, price, imageUrl, category, stock, hasSweetness, hasIceLevel, isHot, hotPriority, hotBadgeText, discountPrice } = req.body;
+
         if (!name || !price || !category) {
             return res.status(400).json({
                 success: false,
                 message: '商品名称、价格和分类为必填项'
             });
         }
-        
+
         const result = await database.updateProduct(
-            productId, 
-            name, 
-            description, 
-            price, 
-            imageUrl, 
-            category, 
+            productId,
+            name,
+            description,
+            price,
+            imageUrl,
+            category,
             stock,
             hasSweetness || false,
-            hasIceLevel || false
+            hasIceLevel || false,
+            isHot || false,
+            hotPriority || 50,
+            hotBadgeText || '🔥爆款',
+            discountPrice || null
         );
-        
+
         if (result.changes === 0) {
             return res.status(404).json({
                 success: false,
                 message: '商品不存在'
             });
         }
-        
+
         res.json({
             success: true,
             message: '商品更新成功'
         });
     } catch (error) {
         console.error('更新商品失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '服务器错误'
+        });
+    }
+});
+
+// 设置/取消爆款（需要店长权限）
+router.put('/:id/hot', verifyToken, verifyManager, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { isHot, hotPriority, hotBadgeText } = req.body;
+
+        const result = await database.run(
+            'UPDATE products SET is_hot = ?, hot_priority = ?, hot_badge_text = ? WHERE id = ?',
+            [isHot ? 1 : 0, hotPriority || 0, hotBadgeText || '爆款', id]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({
+                success: false,
+                message: '商品不存在'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: isHot ? '已设置为爆款商品' : '已取消爆款状态'
+        });
+    } catch (error) {
+        console.error('设置爆款失败:', error);
         res.status(500).json({
             success: false,
             message: '服务器错误'
@@ -681,25 +767,29 @@ router.post('/upgrade-manager', async (req, res) => {
     }
 });
 
-// 购买商品接口（需要认证以记录用户订单）
-router.post('/purchase', verifyToken, async (req, res) => {
+// 购买商品接口（支持认证和访客购买）
+router.post('/purchase', async (req, res) => {
+    console.log('=== 购买请求到达服务器 ===');
+    console.log('Request body:', req.body);
+    console.log('Headers:', req.headers);
+
     try {
         const { productId, quantity = 1, customization } = req.body;
-        
+
         if (!productId) {
             return res.status(400).json({
                 success: false,
                 message: '缺少商品ID'
             });
         }
-        
+
         if (quantity <= 0) {
             return res.status(400).json({
                 success: false,
                 message: '购买数量必须大于0'
             });
         }
-        
+
         // 获取商品信息
         const product = await database.getProductById(productId);
         if (!product) {
@@ -708,7 +798,7 @@ router.post('/purchase', verifyToken, async (req, res) => {
                 message: '商品不存在'
             });
         }
-        
+
         // 检查库存
         if (product.stock < quantity) {
             return res.status(400).json({
@@ -716,12 +806,63 @@ router.post('/purchase', verifyToken, async (req, res) => {
                 message: '库存不足'
             });
         }
-        
+
         // 扣减库存
         const newStock = product.stock - quantity;
         await database.updateProductStock(productId, newStock);
-        
-        // 创建订单记录
+
+        // 确定客户邮箱（优先使用认证用户，否则使用访客）
+        let customerEmail = 'guest@shop.com';
+        console.log('=== 用户身份识别开始 ===');
+
+        // 尝试获取认证用户信息
+        const token = req.headers.authorization?.split(' ')[1];
+        console.log('Authorization token存在:', !!token);
+
+        if (token) {
+            console.log('Token前50字符:', token.substring(0, 50) + '...');
+            try {
+                // 尝试验证标准JWT令牌
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                console.log('✅ 标准JWT令牌解析成功:', {
+                    email: decoded.email,
+                    role: decoded.role,
+                    userId: decoded.userId
+                });
+                customerEmail = decoded.email;
+            } catch (jwtError) {
+                console.log('❌ 标准JWT验证失败:', jwtError.message);
+                console.log('尝试管理员token格式...');
+
+                // 尝试解析前端生成的店长令牌
+                const parts = token.split('.');
+                if (parts.length === 3) {
+                    try {
+                        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+                        console.log('✅ 管理员token解析成功:', {
+                            email: payload.email,
+                            role: payload.role,
+                            userId: payload.userId
+                        });
+                        if (payload.email) {
+                            customerEmail = payload.email;
+                        }
+                    } catch (parseError) {
+                        console.log('❌ 管理员token解析失败:', parseError.message);
+                        console.log('使用访客身份');
+                    }
+                } else {
+                    console.log('❌ Token格式不正确，部分数量:', parts.length);
+                }
+            }
+        } else {
+            console.log('⚠️ 未提供认证token，使用访客身份');
+        }
+
+        console.log('🎯 最终确定的购买用户邮箱:', customerEmail);
+        console.log('=== 用户身份识别完成 ===');
+
+        console.log('🛒 开始创建订单...');
         const order = await database.createOrder(
             productId,
             product.name,
@@ -730,11 +871,20 @@ router.post('/purchase', verifyToken, async (req, res) => {
             product.price,
             product.price * quantity,
             customization,
-            req.user.email // 使用认证用户的真实邮箱
+            customerEmail
         );
-        
+        console.log('✅ 订单创建成功:', {
+            订单ID: order.id,
+            商品: product.name,
+            数量: quantity,
+            总价: product.price * quantity,
+            客户邮箱: customerEmail
+        });
+
         // 实时更新用户统计数据
-        await database.updateUserStats(req.user.email);
+        console.log('📊 开始更新用户统计数据...');
+        await database.updateUserStats(customerEmail);
+        console.log('✅ 用户统计数据更新完成');
         
         res.json({
             success: true,

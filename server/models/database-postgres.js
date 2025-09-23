@@ -452,7 +452,7 @@ class Database {
     // 商品相关方法
     async getAllProducts() {
         try {
-            return await this.all('SELECT * FROM products ORDER BY is_hot DESC, hot_priority DESC, created_at DESC');
+            return await this.all('SELECT * FROM products ORDER BY created_at DESC');
         } catch (error) {
             throw error;
         }

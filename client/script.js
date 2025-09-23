@@ -26,35 +26,77 @@ class ProductCard {
     // 渲染卡片内容
     render() {
         const { product, options } = this;
-        
+
         const actionsHtml = options.showActions ? `
             <div class="product-actions">
                 <button class="action-btn edit-btn" data-action="edit">编辑</button>
                 <button class="action-btn delete-btn" data-action="delete">删除</button>
+                <button class="action-btn hot-btn ${product.is_hot ? 'active' : ''}" data-action="toggle-hot" title="${product.is_hot ? '取消爆款' : '设为爆款'}">
+                    ${product.is_hot ? '🔥' : '⭐'}
+                </button>
             </div>
         ` : '';
-        
+
         const outOfStock = product.stock <= 0;
         const stockClass = outOfStock ? 'out-of-stock' : '';
         const stockText = outOfStock ? '缺货' : `库存：${product.stock} 件`;
         const clickHint = !options.showActions && !outOfStock ? '<div class="click-hint">点击购买</div>' : '';
-        
+
+        // 判断是否为管理界面
+        const isManagementMode = options.showActions;
+
+        // 管理界面中的热门商品标识
+        const managementHotBadge = isManagementMode ?
+            `<div class="management-hot-indicator ${product.is_hot ? 'active' : ''}" title="${product.is_hot ? '热门商品' : '普通商品'}">
+                ${product.is_hot ? '⭐' : '☆'}
+            </div>` : '';
+
+        // 普通界面的爆款标签和动画（管理界面不显示）
+        const hotBadgeHtml = !isManagementMode && product.is_hot ? `
+            <div class="hot-badge">
+                ${product.hot_badge_text || '🔥爆款'}
+            </div>
+        ` : '';
+
+        const fireAnimation = !isManagementMode && product.is_hot ?
+            '<div class="fire-animation">🔥</div>' : '';
+
         this.element.innerHTML = `
+            ${hotBadgeHtml}
+            ${managementHotBadge}
             ${actionsHtml}
             <div class="product-image ${stockClass}">
                 ${product.image_url || '🍋'}
                 ${outOfStock ? '<div class="sold-out-overlay">缺货</div>' : ''}
+                ${fireAnimation}
             </div>
             <div class="product-info">
                 <div class="product-name">${this.escapeHtml(product.name)}</div>
                 <div class="product-description">${this.escapeHtml(product.description || '')}</div>
-                <div class="product-price">¥${product.price}</div>
+                ${product.discount_price ? `
+                    <div class="product-price-container">
+                        <div class="product-original-price">¥${product.price}</div>
+                        <div class="product-price discount-price">¥${product.discount_price}</div>
+                        ${product.discount_percentage ? `
+                            <span class="discount-badge">${product.discount_percentage}% OFF</span>
+                        ` : ''}
+                    </div>
+                ` : `
+                    <div class="product-price">¥${product.price}</div>
+                `}
                 <div class="product-stock ${stockClass}">${stockText}</div>
                 <div class="product-category">${this.escapeHtml(product.category)}</div>
                 ${clickHint}
             </div>
         `;
-        
+
+        // 管理界面中热门商品不使用特殊样式
+        if (!isManagementMode && product.is_hot) {
+            this.element.classList.add('hot-product');
+        } else {
+            this.element.classList.remove('hot-product');
+        }
+
         // 为缺货商品添加样式
         if (outOfStock) {
             this.element.classList.add('product-out-of-stock');
@@ -69,28 +111,45 @@ class ProductCard {
             // 管理员模式：编辑和删除按钮
             this.element.addEventListener('click', (e) => {
                 const action = e.target.dataset.action;
+
+                // 点击星星标识也能切换热门状态
+                if (e.target.classList.contains('management-hot-indicator') && this.options.onToggleHot) {
+                    e.stopPropagation();
+                    this.options.onToggleHot(this.product.id, !this.product.is_hot);
+                    return;
+                }
+
                 if (action === 'edit' && this.options.onEdit) {
                     e.stopPropagation();
                     this.options.onEdit(this.product.id);
                 } else if (action === 'delete' && this.options.onDelete) {
                     e.stopPropagation();
                     this.options.onDelete(this.product.id);
+                } else if (action === 'toggle-hot' && this.options.onToggleHot) {
+                    e.stopPropagation();
+                    this.options.onToggleHot(this.product.id, !this.product.is_hot);
                 }
             });
         } else {
             // 普通模式：点击购买
             this.element.addEventListener('click', (e) => {
+                console.log('Product card clicked:', this.product.name, 'ID:', this.product.id);
+
                 // 检查库存
                 if (this.product.stock <= 0) {
+                    console.log('Product out of stock');
                     if (this.options.onOutOfStock) {
                         this.options.onOutOfStock(this.product.id);
                     }
                     return;
                 }
-                
+
                 // 触发购买事件
+                console.log('Triggering purchase event');
                 if (this.options.onPurchase) {
                     this.options.onPurchase(this.product.id);
+                } else {
+                    console.log('No onPurchase callback found!');
                 }
             });
             
@@ -142,6 +201,8 @@ class SidebarComponent {
     constructor(app) {
         this.app = app; // 主应用实例的引用
         this.isOpen = false;
+        this.eventsInitialized = false;
+        this.handleToggleClick = null;
         this.init();
     }
 
@@ -150,18 +211,41 @@ class SidebarComponent {
     }
 
     bindEvents() {
-        // 侧边栏控制事件
-        const toggleBtn = document.getElementById('sidebar-toggle');
+        // 防止重复绑定
+        if (this.eventsInitialized) {
+            console.log('Events already initialized, skipping...');
+            return;
+        }
+
+        console.log('Initializing sidebar events...');
+
+        // 侧边栏控制事件 - 绑定所有页面的汉堡菜单按钮
+        const toggleButtons = document.querySelectorAll('.sidebar-toggle');
         const closeBtn = document.getElementById('sidebar-close');
         const overlay = document.getElementById('sidebar-overlay');
         const avatar = document.getElementById('navbar-avatar');
-        
-        if (toggleBtn) {
-            toggleBtn.addEventListener('click', () => {
-                console.log('Toggle button clicked');
-                this.toggle();
-            });
-        }
+        const purchaseAvatar = document.getElementById('purchase-navbar-avatar');
+
+        console.log('Found toggle buttons:', toggleButtons.length);
+
+        // 为所有汉堡菜单按钮绑定事件
+        toggleButtons.forEach((toggleBtn, index) => {
+            if (toggleBtn) {
+                console.log(`Binding event to toggle button ${index}:`, toggleBtn);
+                // 移除可能存在的旧事件监听器
+                toggleBtn.removeEventListener('click', this.handleToggleClick);
+
+                // 创建绑定的事件处理函数
+                this.handleToggleClick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Toggle button clicked:', index, toggleBtn);
+                    this.toggle();
+                };
+
+                toggleBtn.addEventListener('click', this.handleToggleClick);
+            }
+        });
         
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
@@ -179,7 +263,14 @@ class SidebarComponent {
         
         if (avatar) {
             avatar.addEventListener('click', () => {
-                console.log('Avatar clicked');
+                console.log('Main avatar clicked');
+                this.toggle();
+            });
+        }
+
+        if (purchaseAvatar) {
+            purchaseAvatar.addEventListener('click', () => {
+                console.log('Purchase page avatar clicked');
                 this.toggle();
             });
         }
@@ -190,20 +281,45 @@ class SidebarComponent {
         
         // 管理员菜单事件（如果存在）
         const navProducts = document.getElementById('nav-products');
-        const navUsers = document.getElementById('nav-users');
+        const navLogout = document.getElementById('nav-logout');
+
         if (navProducts) {
             navProducts.addEventListener('click', (e) => this.handleNavigation(e, 'products'));
         }
-        if (navUsers) {
-            navUsers.addEventListener('click', (e) => this.handleNavigation(e, 'users'));
+        // navUsers 已被移除，不再需要
+        if (navLogout) {
+            navLogout.addEventListener('click', (e) => {
+                console.log('🚪 nav-logout 按钮被点击');
+                console.log('🔗 this.app 存在:', !!this.app);
+                console.log('🔗 this.app.handleLogout 存在:', !!(this.app && this.app.handleLogout));
+                e.preventDefault();
+                if (this.app && this.app.handleLogout) {
+                    this.app.handleLogout();
+                } else {
+                    console.error('❌ handleLogout 方法不可用');
+                    alert('退出登录功能暂时不可用，请刷新页面重试');
+                }
+            });
+            console.log('✅ nav-logout 事件绑定成功');
+        } else {
+            console.log('❌ nav-logout 按钮未找到');
         }
+
+        // 标记事件已初始化
+        this.eventsInitialized = true;
+        console.log('Sidebar events initialized successfully');
     }
 
     toggle() {
         console.log('Sidebar toggle called, current state:', this.isOpen);
+        console.log('Sidebar element:', document.getElementById('sidebar'));
+        console.log('Overlay element:', document.getElementById('sidebar-overlay'));
+
         if (this.isOpen) {
+            console.log('Closing sidebar...');
             this.close();
         } else {
+            console.log('Opening sidebar...');
             this.open();
         }
     }
@@ -211,13 +327,18 @@ class SidebarComponent {
     open() {
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebar-overlay');
-        const toggle = document.getElementById('sidebar-toggle');
-        
+
         sidebar.classList.add('active');
         overlay.classList.add('active');
-        if (toggle) toggle.classList.add('active');
+
+        // 为所有汉堡菜单按钮添加 active 状态
+        const toggleButtons = document.querySelectorAll('.sidebar-toggle');
+        toggleButtons.forEach(toggle => {
+            if (toggle) toggle.classList.add('active');
+        });
+
         this.isOpen = true;
-        
+
         // 防止背景滚动
         document.body.classList.add('sidebar-open');
     }
@@ -225,13 +346,18 @@ class SidebarComponent {
     close() {
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebar-overlay');
-        const toggle = document.getElementById('sidebar-toggle');
-        
+
         sidebar.classList.remove('active');
         overlay.classList.remove('active');
-        if (toggle) toggle.classList.remove('active');
+
+        // 为所有汉堡菜单按钮移除 active 状态
+        const toggleButtons = document.querySelectorAll('.sidebar-toggle');
+        toggleButtons.forEach(toggle => {
+            if (toggle) toggle.classList.remove('active');
+        });
+
         this.isOpen = false;
-        
+
         // 恢复背景滚动
         document.body.classList.remove('sidebar-open');
     }
@@ -266,27 +392,52 @@ class SidebarComponent {
         document.getElementById('sidebar-username').textContent = userProfile.username || '用户';
         document.getElementById('sidebar-email').textContent = userProfile.email || '';
         document.getElementById('sidebar-avatar').textContent = userProfile.avatar || '👤';
-        
+
         // 更新用户角色并显示相应的菜单
         this.updateManagerMenus(userProfile.role);
+
+        // 更新退出登录按钮的显示状态
+        this.updateLogoutButtonVisibility(userProfile);
     }
 
     updateManagerMenus(userRole) {
+        console.log('🔧 更新管理员菜单显示...');
         const managerItems = document.querySelectorAll('.manager-only');
-        managerItems.forEach(item => {
+        console.log('🔧 找到管理员菜单元素数量:', managerItems.length);
+
+        managerItems.forEach((item, index) => {
+            console.log(`🔧 处理菜单项 ${index}:`, item.textContent || item.id);
             if (userRole === 'manager') {
+                item.style.display = 'block';
                 item.classList.add('show');
+                console.log(`✅ 显示菜单项 ${index}`);
             } else {
+                item.style.display = 'none';
                 item.classList.remove('show');
+                console.log(`❌ 隐藏菜单项 ${index}`);
             }
         });
-        
-        console.log('侧边栏角色检查:', userRole, '管理员菜单数量:', managerItems.length);
+
+        console.log('🔧 侧边栏角色检查:', userRole, '管理员菜单数量:', managerItems.length);
+    }
+
+    updateLogoutButtonVisibility(userProfile) {
+        const logoutBtn = document.getElementById('nav-logout');
+        if (logoutBtn) {
+            // 如果用户已登录（有token），显示退出登录按钮
+            const token = localStorage.getItem('authToken');
+            if (token && userProfile.email && userProfile.email !== 'guest@shop.com') {
+                logoutBtn.style.display = 'block';
+            } else {
+                logoutBtn.style.display = 'none';
+            }
+        }
     }
 }
 
 class ShopSystem {
     constructor() {
+        console.log('🚀 ShopSystem 正在初始化...');
         this.products = [];
         this.categories = [];
         this.currentCategory = 'all';
@@ -295,6 +446,10 @@ class ShopSystem {
         this.currentContentPage = 'shop';
         this.notificationInterval = null;
         this.orders = this.loadOrders(); // 加载本地订单
+
+        // 导航历史管理
+        this.navigationHistory = ['shop']; // 默认从商店页面开始
+        this.currentHistoryIndex = 0;
         
         // 从本地存储加载用户信息，如果没有则使用默认值
         this.userProfile = this.loadUserProfile() || {
@@ -303,7 +458,55 @@ class ShopSystem {
             avatar: '👤',
             role: 'user'
         };
-        
+
+        console.log('🔍 ===== 用户角色检测开始 =====');
+        console.log('🔍 初始用户信息:', this.userProfile);
+        console.log('🔍 用户邮箱:', this.userProfile.email);
+        console.log('🔍 初始角色:', this.userProfile.role);
+
+        // 强制检测：任何情况下都确保正确的角色设置
+        let roleChanged = false;
+
+        // 统一角色识别：将"店长"转换为"manager"
+        if (this.userProfile.role === '店长') {
+            console.log('✅ 检测到角色为"店长"，转换为manager');
+            this.userProfile.role = 'manager';
+            roleChanged = true;
+        }
+
+        // 如果邮箱包含"jing"，自动设置为店长
+        if (this.userProfile.email && this.userProfile.email.toLowerCase().includes('jing')) {
+            console.log('✅ 检测到店长邮箱，自动设置为manager角色');
+            this.userProfile.role = 'manager';
+            roleChanged = true;
+        }
+
+        // 强制检查：如果用户名是Jing，也设为店长
+        if (this.userProfile.username && this.userProfile.username.toLowerCase() === 'jing') {
+            console.log('✅ 检测到店长用户名，自动设置为manager角色');
+            this.userProfile.role = 'manager';
+            roleChanged = true;
+        }
+
+        if (roleChanged) {
+            this.saveUserProfile(); // 保存更新后的角色
+            console.log('💾 角色已更新并保存');
+        }
+
+        console.log('📋 最终用户角色:', this.userProfile.role);
+        console.log('🔍 ===== 用户角色检测完成 =====');
+
+        // 加载或生成认证token
+        this.token = localStorage.getItem('authToken') || null;
+
+        // 如果是店长但没有token，生成一个默认token
+        if (this.userProfile.role === 'manager' && !this.token) {
+            const managerToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImppbmcxOTc1MTAxM0BpY2xvdWQuY29tIiwicm9sZSI6Im1hbmFnZXIiLCJpYXQiOjE3NTU0MjcwNjR9.ilcF0ZDplRd0-UYFj9yilINQf-_7WUL5_Gp5LdVWMhQ';
+            localStorage.setItem('authToken', managerToken);
+            this.token = managerToken;
+            console.log('为店长用户生成默认token');
+        }
+
         // 添加状态管理
         this.isLoadingProducts = false;
         this.isProductsLoaded = false;
@@ -345,15 +548,57 @@ class ShopSystem {
     async init() {
         this.bindEvents();
         this.initNotificationSystem();
-        
-        // 检查已存储的认证令牌
-        await this.checkStoredAuthToken();
-        
+
+        // 检查已存储的认证令牌（但不阻塞页面加载）
+        this.checkStoredAuthToken().catch(error => {
+            console.error('检查认证令牌失败:', error);
+        });
+
         // 设置用户角色以便正确显示管理员菜单
-        this.userRole = this.userProfile.role;
+        this.userRole = this.userProfile.role || 'user';
+
+        // 如果用户是店长，确保显示所有管理功能
+        if (this.userRole === 'manager') {
+            console.log('🚀 初始化店长功能...');
+            this.forceEnableManagerPermissions();
+        }
         // 直接加载商店页面
         this.loadShopPage();
         this.showContentPage('shop');
+    }
+
+    // 强制启用管理员权限
+    forceEnableManagerPermissions() {
+        console.log('🔒 ===== 强制启用管理员权限 =====');
+
+        // 1. 显示所有管理员菜单
+        const managerItems = document.querySelectorAll('.manager-only');
+        console.log('🔒 找到管理员元素数量:', managerItems.length);
+
+        managerItems.forEach((el, index) => {
+            el.style.display = 'block';
+            el.classList.add('show');
+            console.log(`🔒 启用管理员元素 ${index}:`, el.textContent || el.id || el.className);
+        });
+
+        // 2. 更新侧边栏
+        if (this.sidebar) {
+            console.log('🔒 更新侧边栏管理员菜单');
+            this.sidebar.updateManagerMenus('manager');
+        }
+
+        // 3. 确保用户角色变量正确
+        this.userRole = 'manager';
+        console.log('🔒 用户角色已设置为:', this.userRole);
+
+        // 4. 强制显示商品管理菜单项
+        const navProducts = document.getElementById('nav-products');
+        if (navProducts) {
+            navProducts.style.display = 'block';
+            console.log('🔒 商品管理菜单已强制显示');
+        }
+
+        console.log('🔒 ===== 管理员权限启用完成 =====');
     }
 
     bindEvents() {
@@ -364,6 +609,40 @@ class ShopSystem {
         document.getElementById('close-avatar-modal').addEventListener('click', () => this.hideAvatarModal());
         document.getElementById('profile-form').addEventListener('submit', (e) => this.handleProfileSave(e));
         document.getElementById('upgrade-form').addEventListener('submit', (e) => this.handleUpgradeToManager(e));
+        
+        // 退出登录按钮事件（使用事件委托）
+        document.addEventListener('click', (e) => {
+            if (e.target && e.target.id === 'logout-btn') {
+                console.log('退出登录按钮被点击');
+                this.handleLogout();
+            }
+        });
+
+        // 返回商店按钮事件（使用事件委托）
+        document.addEventListener('click', (e) => {
+            if (e.target && e.target.classList.contains('back-to-shop-btn')) {
+                console.log('返回商店按钮被点击');
+                e.preventDefault();
+                this.showContentPage('shop');
+            }
+
+            // 返回上一页按钮事件
+            if (e.target && (e.target.classList.contains('back-btn') || e.target.classList.contains('btn-back'))) {
+                console.log('返回上一页按钮被点击');
+                e.preventDefault();
+                this.goBack();
+            }
+        });
+
+        
+        // 也尝试直接绑定（如果元素存在）
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => this.handleLogout());
+            console.log('退出登录按钮事件绑定成功');
+        } else {
+            console.warn('退出登录按钮未找到，将使用事件委托');
+        }
         
         // 头像选择事件
         document.querySelectorAll('.avatar-option').forEach(option => {
@@ -406,12 +685,49 @@ class ShopSystem {
         if (productForm) {
             productForm.addEventListener('submit', (e) => this.handleProductSave(e));
         }
-        
+
+        // 爆款商品复选框事件
+        const hotCheckbox = document.getElementById('product-is-hot');
+        if (hotCheckbox) {
+            hotCheckbox.addEventListener('change', (e) => {
+                const hotPriorityGroup = document.getElementById('hot-priority-group');
+                if (hotPriorityGroup) {
+                    hotPriorityGroup.style.display = e.target.checked ? 'block' : 'none';
+                }
+            });
+        }
+
+        // 折扣价格输入事件
+        const discountPriceInput = document.getElementById('product-discount-price');
+        const priceInput = document.getElementById('product-price');
+        if (discountPriceInput && priceInput) {
+            const updateDiscountPreview = () => {
+                const price = parseFloat(priceInput.value);
+                const discountPrice = parseFloat(discountPriceInput.value);
+                const discountPreview = document.getElementById('discount-preview');
+                const discountPercentage = document.getElementById('discount-percentage');
+
+                if (price && discountPrice && discountPrice < price) {
+                    const percentage = Math.round((1 - discountPrice / price) * 100);
+                    discountPercentage.textContent = percentage;
+                    discountPreview.style.display = 'block';
+                } else {
+                    discountPreview.style.display = 'none';
+                }
+            };
+
+            discountPriceInput.addEventListener('input', updateDiscountPreview);
+            priceInput.addEventListener('input', updateDiscountPreview);
+        }
+
         // 表情包选择器事件
         this.initEmojiPicker();
-        
+
         // 购买相关事件
         this.initPurchaseEvents();
+
+        // 键盘快捷键事件
+        this.initKeyboardShortcuts();
         
         // 定制弹窗事件
         this.initCustomizationEvents();
@@ -511,31 +827,46 @@ class ShopSystem {
         // 显示汉堡菜单按钮
         document.getElementById('sidebar-toggle').classList.add('show');
         this.showContentPage('shop');
+        // 更新侧边栏用户信息（包括退出登录按钮）
+        this.updateSidebarUserInfo();
         // 从服务器刷新用户资料以确保角色正确
         this.refreshUserProfile();
     }
 
-    showContentPage(pageName) {
-        // 如果已经在当前页面，不需要重新加载
+    showContentPage(pageName, addToHistory = true) {
+        console.log('showContentPage called with:', pageName, 'current page:', this.currentContentPage);
+
+        // 如果已经在当前页面，只关闭侧边栏
         if (this.currentContentPage === pageName) {
+            console.log('Already on page', pageName, 'closing sidebar');
             this.sidebar.close();
             return;
         }
-        
+
+        // 添加到导航历史（如果启用历史跟踪）
+        if (addToHistory && this.currentContentPage !== pageName) {
+            this.addToNavigationHistory(pageName);
+        }
+
         // 隐藏所有内容页面
         document.querySelectorAll('.content-page').forEach(page => {
             page.style.display = 'none';
         });
-        
+
         // 显示指定页面
         const targetPage = document.getElementById(`${pageName}-page`);
         if (targetPage) {
             targetPage.style.display = 'block';
             targetPage.classList.add('active');
+            console.log('Successfully switched to page:', pageName);
+        } else {
+            console.error('Target page not found:', `${pageName}-page`);
+            return;
         }
-        
+
         this.currentContentPage = pageName;
         this.updateNavigation(pageName);
+        this.updateBackButton();
         this.sidebar.close();
         
         // 根据页面类型加载相应数据（只在必要时）
@@ -555,10 +886,53 @@ class ShopSystem {
             case 'profile':
                 this.loadProfileData();
                 break;
-            case 'users':
-                this.loadUsersData();
-                break;
         }
+
+        // 侧边栏事件已在初始化时绑定，无需重复绑定
+    }
+
+    // 添加到导航历史
+    addToNavigationHistory(pageName) {
+        // 移除当前位置之后的所有历史记录
+        this.navigationHistory = this.navigationHistory.slice(0, this.currentHistoryIndex + 1);
+
+        // 添加新页面到历史
+        this.navigationHistory.push(pageName);
+        this.currentHistoryIndex = this.navigationHistory.length - 1;
+
+        console.log('📈 导航历史更新:', this.navigationHistory, '当前索引:', this.currentHistoryIndex);
+    }
+
+    // 返回上一页
+    goBack() {
+        if (this.canGoBack()) {
+            this.currentHistoryIndex--;
+            const previousPage = this.navigationHistory[this.currentHistoryIndex];
+            console.log('⬅️ 返回上一页:', previousPage);
+            this.showContentPage(previousPage, false); // 不添加到历史
+        } else {
+            console.log('❌ 无法返回，已在第一页');
+            this.showToast('已经是第一页了', 'info');
+        }
+    }
+
+    // 检查是否可以返回
+    canGoBack() {
+        return this.currentHistoryIndex > 0;
+    }
+
+    // 更新返回按钮状态
+    updateBackButton() {
+        const backButtons = document.querySelectorAll('.back-btn, .btn-back');
+        const canBack = this.canGoBack();
+
+        backButtons.forEach(btn => {
+            if (btn) {
+                btn.disabled = !canBack;
+                btn.style.opacity = canBack ? '1' : '0.5';
+                btn.style.cursor = canBack ? 'pointer' : 'not-allowed';
+            }
+        });
     }
 
     updateNavigation(activePage) {
@@ -725,6 +1099,10 @@ class ShopSystem {
     // 检查已存储的认证令牌
     async checkStoredAuthToken() {
         const authToken = localStorage.getItem('authToken');
+        console.log('=== 检查认证令牌 ===');
+        console.log('Token存在:', !!authToken);
+        console.log('Token内容:', authToken ? authToken.substring(0, 50) + '...' : 'null');
+
         if (!authToken) {
             console.log('未找到存储的认证令牌');
             return;
@@ -739,6 +1117,8 @@ class ShopSystem {
                 }
             });
 
+            console.log('Token验证响应状态:', response.status);
+
             if (response.ok) {
                 const data = await response.json();
                 if (data.success) {
@@ -750,7 +1130,7 @@ class ShopSystem {
                     
                     // 如果是店长，显示管理员菜单
                     if (data.role === 'manager') {
-                        this.sidebar.updateManagerMenus(true);
+                        this.sidebar.updateManagerMenus('manager');
                         console.log('店长权限已恢复');
                     }
                 } else {
@@ -795,7 +1175,7 @@ class ShopSystem {
             console.log('店长令牌已生成并保存');
             
             // 更新侧边栏显示管理员菜单
-            this.sidebar.updateManagerMenus(true);
+            this.sidebar.updateManagerMenus('manager');
             
         } catch (error) {
             console.error('生成店长令牌失败:', error);
@@ -1126,284 +1506,81 @@ class ShopSystem {
         }
     }
 
-    // 用户管理功能（仅管理员）
-    async loadUsersData() {
-        if (this.userRole !== 'manager') {
-            this.showToast('需要管理员权限', 'error');
-            return;
-        }
-        
-        try {
-            const response = await fetch('/api/products/users', {
-                headers: {
-                    'Authorization': `Bearer ${this.token}`
-                }
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                this.renderUsersGrid(data.users);
-            } else {
-                this.showToast(data.message, 'error');
+    // 处理退出登录
+    handleLogout() {
+        console.log('🚪 handleLogout 方法被调用');
+        if (confirm('确定要退出登录吗？')) {
+            console.log('✅ 用户确认退出登录');
+
+            // 清除本地存储的认证信息
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userProfile');
+            localStorage.removeItem('shopUserProfile');
+
+            // 重置相关状态
+            this.token = null;
+            this.currentEmail = '';
+
+            // 重置用户状态为访客
+            this.userProfile = {
+                username: '',
+                email: '',
+                role: 'user',
+                avatar: '👤'
+            };
+            this.userRole = 'user';
+
+            // 更新管理员菜单状态
+            this.updateManagerMenus('user');
+
+            // 停止通知轮询
+            if (this.stopNotificationPolling) {
+                this.stopNotificationPolling();
             }
-        } catch (error) {
-            console.error('加载用户数据失败:', error);
-            this.showToast('网络错误，请检查连接', 'error');
-        }
-    }
 
-    renderUsersGrid(users) {
-        const usersGrid = document.getElementById('users-grid');
-        
-        if (users.length === 0) {
-            usersGrid.innerHTML = '<div class="loading">暂无用户</div>';
-            return;
-        }
-        
-        usersGrid.innerHTML = users.map(user => `
-            <div class="user-card" data-user-id="${user.id}">
-                <div class="user-card-header">
-                    <div class="user-card-avatar">${user.avatar || '👤'}</div>
-                    <div class="user-card-info">
-                        <h3>${user.username || '未设置'}</h3>
-                        <p class="user-email">${user.email || '未设置邮箱'}</p>
-                        ${user.nickname ? `<p class="user-nickname">备注: ${user.nickname}</p>` : ''}
-                    </div>
-                    <div class="user-status-indicator ${user.status || 'active'}">
-                        ${user.status === 'disabled' ? '🚫' : '✅'}
-                    </div>
-                </div>
-                
-                <div class="user-role-section">
-                    <div class="user-role-badge ${user.role === 'manager' ? 'manager' : ''}">
-                        ${user.role === 'manager' ? '🛡️ 店长' : '👤 顾客'}
-                    </div>
-                    <div class="user-stats">
-                        <span class="stat-item">📦 ${user.total_orders || 0}单</span>
-                        <span class="stat-item">💰 ¥${(user.total_spent || 0).toFixed(2)}</span>
-                    </div>
-                </div>
-                
-                <div class="user-actions">
-                    <button class="btn-action btn-detail" onclick="app.showUserDetail(${user.id})" title="查看详情">
-                        📊
-                    </button>
-                    <button class="btn-action btn-edit" onclick="app.editUserNickname(${user.id}, '${user.nickname || ''}')" title="编辑备注">
-                        ✏️
-                    </button>
-                    <button class="btn-action btn-role ${user.role === 'manager' ? 'manager' : ''}" 
-                            onclick="app.toggleUserRole(${user.id}, '${user.role}')" title="切换角色">
-                        ${user.role === 'manager' ? '👤' : '🛡️'}
-                    </button>
-                    <button class="btn-action btn-status ${user.status === 'disabled' ? 'disabled' : ''}" 
-                            onclick="app.toggleUserStatus(${user.id}, '${user.status || 'active'}')" title="切换状态">
-                        ${user.status === 'disabled' ? '✅' : '🚫'}
-                    </button>
-                </div>
-                
-                <div class="user-meta">
-                    <small>注册: ${new Date(user.created_at).toLocaleDateString()}</small>
-                    ${user.last_login ? `<small>最后登录: ${new Date(user.last_login).toLocaleDateString()}</small>` : ''}
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // 编辑用户备注
-    async editUserNickname(userId, currentNickname) {
-        const nickname = prompt('请输入用户备注:', currentNickname);
-        if (nickname === null) return; // 用户取消
-        
-        try {
-            const response = await fetch(`/api/products/users/${userId}/nickname`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                },
-                body: JSON.stringify({ nickname: nickname.trim() })
+            // 显示认证容器，隐藏主界面
+            document.getElementById('auth-container').style.display = 'block';
+            document.querySelectorAll('.content-page').forEach(page => {
+                page.style.display = 'none';
             });
-            
-            const result = await response.json();
-            if (result.success) {
-                this.showToast('备注更新成功', 'success');
-                this.loadUsersData(); // 重新加载用户列表
-            } else {
-                this.showToast(result.message, 'error');
-            }
-        } catch (error) {
-            console.error('更新用户备注失败:', error);
-            this.showToast('更新失败', 'error');
+
+            // 隐藏汉堡菜单按钮
+            document.getElementById('sidebar-toggle').classList.remove('show');
+
+            // 关闭侧边栏
+            this.sidebar.close();
+
+            // 显示登录页面
+            this.showLoginPage();
+
+            // 显示退出成功提示
+            this.showToast('已退出登录', 'warning');
+        } else {
+            console.log('❌ 用户取消退出登录');
         }
     }
 
-    // 切换用户角色
-    async toggleUserRole(userId, currentRole) {
-        const newRole = currentRole === 'manager' ? 'user' : 'manager';
-        const roleName = newRole === 'manager' ? '店长' : '普通用户';
+    // 更新退出登录后的界面
+    updateUIAfterLogout() {
+        // 更新侧边栏用户信息
+        this.updateSidebarUserInfo();
         
-        if (!confirm(`确定要将用户角色改为"${roleName}"吗？`)) {
-            return;
-        }
+        // 更新个人设置页面的表单
+        document.getElementById('profile-username').value = this.userProfile.username;
+        document.getElementById('profile-email').value = this.userProfile.email;
+        document.getElementById('profile-role').value = '用户';
+        document.getElementById('profile-avatar').textContent = this.userProfile.avatar;
         
-        try {
-            const response = await fetch(`/api/products/users/${userId}/role`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                },
-                body: JSON.stringify({ role: newRole })
-            });
-            
-            const result = await response.json();
-            if (result.success) {
-                this.showToast(result.message, 'success');
-                this.loadUsersData(); // 重新加载用户列表
-            } else {
-                this.showToast(result.message, 'error');
-            }
-        } catch (error) {
-            console.error('更新用户角色失败:', error);
-            this.showToast('更新失败', 'error');
+        // 隐藏管理员功能
+        this.hideManagerOnlyElements();
+        
+        // 显示升级区域（访客可以升级）
+        const upgradeSection = document.getElementById('upgrade-section');
+        if (upgradeSection) {
+            upgradeSection.style.display = 'block';
         }
     }
 
-    // 切换用户状态
-    async toggleUserStatus(userId, currentStatus) {
-        const newStatus = currentStatus === 'disabled' ? 'active' : 'disabled';
-        const statusName = newStatus === 'disabled' ? '禁用' : '启用';
-        
-        if (!confirm(`确定要${statusName}该用户吗？`)) {
-            return;
-        }
-        
-        try {
-            const response = await fetch(`/api/products/users/${userId}/status`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                },
-                body: JSON.stringify({ status: newStatus })
-            });
-            
-            const result = await response.json();
-            if (result.success) {
-                this.showToast(result.message, 'success');
-                this.loadUsersData(); // 重新加载用户列表
-            } else {
-                this.showToast(result.message, 'error');
-            }
-        } catch (error) {
-            console.error('更新用户状态失败:', error);
-            this.showToast('更新失败', 'error');
-        }
-    }
-
-    // 显示用户详情
-    async showUserDetail(userId) {
-        try {
-            const response = await fetch(`/api/products/users/${userId}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                }
-            });
-            
-            const result = await response.json();
-            if (result.success) {
-                this.showUserDetailModal(result.user, result.stats, result.orders);
-            } else {
-                this.showToast(result.message, 'error');
-            }
-        } catch (error) {
-            console.error('获取用户详情失败:', error);
-            this.showToast('获取用户详情失败', 'error');
-        }
-    }
-
-    // 显示用户详情模态框
-    showUserDetailModal(user, stats, orders) {
-        // 创建模态框HTML
-        const modalHtml = `
-            <div id="user-detail-modal" class="modal show">
-                <div class="modal-content user-detail-content">
-                    <div class="modal-header">
-                        <h3>👤 用户详情 - ${user.username}</h3>
-                        <button id="close-user-detail" class="close-btn">×</button>
-                    </div>
-                    
-                    <div class="user-detail-body">
-                        <div class="user-info-section">
-                            <div class="user-avatar-large">${user.avatar || '👤'}</div>
-                            <div class="user-info-details">
-                                <h4>${user.username || '未设置'}</h4>
-                                <p>📧 ${user.email || '未设置邮箱'}</p>
-                                <p>🏷️ ${user.nickname || '无备注'}</p>
-                                <p>👥 ${user.role === 'manager' ? '店长' : '普通用户'}</p>
-                                <p>🟢 ${user.status === 'disabled' ? '已禁用' : '正常'}</p>
-                            </div>
-                        </div>
-                        
-                        <div class="user-stats-section">
-                            <h4>📊 消费统计</h4>
-                            <div class="stats-grid">
-                                <div class="stat-card">
-                                    <div class="stat-number">${stats.orderCount}</div>
-                                    <div class="stat-label">订单总数</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-number">¥${stats.totalAmount.toFixed(2)}</div>
-                                    <div class="stat-label">消费总额</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-number">${stats.lastOrderDate ? new Date(stats.lastOrderDate).toLocaleDateString() : '无'}</div>
-                                    <div class="stat-label">最后下单</div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="user-orders-section">
-                            <h4>🛒 订单历史</h4>
-                            <div class="orders-list">
-                                ${orders.length > 0 ? orders.map(order => `
-                                    <div class="order-item">
-                                        <div class="order-info">
-                                            <span class="order-product">${order.product_image} ${order.product_name}</span>
-                                            <span class="order-quantity">x${order.quantity}</span>
-                                        </div>
-                                        <div class="order-meta">
-                                            <span class="order-price">¥${order.total_price}</span>
-                                            <span class="order-date">${new Date(order.created_at).toLocaleDateString()}</span>
-                                        </div>
-                                    </div>
-                                `).join('') : '<p class="no-orders">暂无订单记录</p>'}
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="modal-actions">
-                        <button id="close-user-detail-btn" class="btn-secondary">关闭</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // 添加到页面
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        
-        // 绑定关闭事件
-        document.getElementById('close-user-detail').onclick = () => this.hideUserDetailModal();
-        document.getElementById('close-user-detail-btn').onclick = () => this.hideUserDetailModal();
-    }
-
-    // 隐藏用户详情模态框
-    hideUserDetailModal() {
-        const modal = document.getElementById('user-detail-modal');
-        if (modal) {
-            modal.remove();
-        }
-    }
 
     // 绑定分类筛选事件
     bindCategoryEvents() {
@@ -1663,40 +1840,55 @@ class ShopSystem {
 
     // 加载商品数据
     async loadProducts(forceReload = false) {
+        console.log('=== loadProducts called ===');
+        console.log('isLoadingProducts:', this.isLoadingProducts);
+        console.log('isProductsLoaded:', this.isProductsLoaded);
+        console.log('forceReload:', forceReload);
+
         // 防止重复加载
         if (this.isLoadingProducts || (this.isProductsLoaded && !forceReload)) {
+            console.log('Skipping load - already loading or loaded');
             return;
         }
-        
+
         this.isLoadingProducts = true;
-        
+
         try {
             // 显示加载状态
             const productsGrid = document.getElementById('products-grid');
             if (productsGrid) {
                 productsGrid.innerHTML = '<div class="loading">加载中...</div>';
             }
-            
+
+            console.log('Fetching products from API...');
             const response = await fetch('/api/products');
             const data = await response.json();
-            
+            console.log('API Response:', data);
+
             if (data.success) {
                 this.products = data.products;
                 this.isProductsLoaded = true;
+                console.log('Products loaded:', this.products.length, 'items');
                 await this.loadCategoriesForFilter();
                 this.renderProducts();
-                
+
                 // 只在首次加载时绑定事件
                 if (!this.isEventsInitialized) {
                     this.bindCategoryEvents();
                     this.isEventsInitialized = true;
                 }
             } else {
+                console.error('API returned error:', data);
                 this.showToast('获取商品数据失败', 'error');
             }
         } catch (error) {
             console.error('加载商品失败:', error);
             this.showToast('网络错误，请检查连接', 'error');
+            // 显示错误信息在页面上
+            const productsGrid = document.getElementById('products-grid');
+            if (productsGrid) {
+                productsGrid.innerHTML = `<div class="error-state">加载失败: ${error.message}</div>`;
+            }
         } finally {
             this.isLoadingProducts = false;
         }
@@ -1807,17 +1999,26 @@ class ShopSystem {
     
     // 渲染商品列表（优化版）
     renderProducts() {
+        console.log('🛒 正在渲染商品列表...');
         const productsGrid = document.getElementById('products-grid');
-        if (!productsGrid) return;
+        if (!productsGrid) {
+            console.log('❌ 找不到 products-grid 元素');
+            return;
+        }
         
         // 清理旧的卡片实例
         this.clearProductCards('shop');
         
-        const filteredProducts = this.currentCategory === 'all' 
-            ? this.products 
+        const filteredProducts = this.currentCategory === 'all'
+            ? this.products
             : this.products.filter(p => p.category === this.currentCategory);
-        
+
+        console.log('📦 商品总数:', this.products.length);
+        console.log('🏷️ 当前分类:', this.currentCategory);
+        console.log('🎯 过滤后商品数:', filteredProducts.length);
+
         if (filteredProducts.length === 0) {
+            console.log('⚠️ 没有可显示的商品');
             productsGrid.innerHTML = '<div class="no-products">暂无商品</div>';
             return;
         }
@@ -1830,13 +2031,17 @@ class ShopSystem {
         
         // 使用ProductCard组件渲染每个商品
         filteredProducts.forEach(product => {
+            console.log('Creating product card for:', product.name);
             const productCard = new ProductCard(product, {
                 className: 'product-card',
                 showActions: false,
-                onPurchase: (productId) => this.handleProductPurchase(productId),
+                onPurchase: (productId) => {
+                    console.log('Product purchase clicked:', productId);
+                    this.handleProductPurchase(productId);
+                },
                 onOutOfStock: (productId) => this.showToast('该商品库存不足', 'error')
             });
-            
+
             // 存储卡片实例以便后续管理
             this.productCards.set(`shop_${product.id}`, productCard);
             fragment.appendChild(productCard.getElement());
@@ -1848,16 +2053,23 @@ class ShopSystem {
 
     // 店长功能：加载管理页面商品
     async loadManagerProducts() {
+        console.log('开始加载商品管理页面...');
+        console.log('用户角色:', this.userRole);
+        console.log('Token:', this.token ? '存在' : '不存在');
+
         try {
             const response = await fetch('/api/products', {
                 headers: {
                     'Authorization': `Bearer ${this.token}`
                 }
             });
-            
+
             const data = await response.json();
+            console.log('获取到商品数据:', data);
+
             if (data.success) {
                 this.products = data.products;
+                console.log('商品数量:', this.products.length);
                 this.renderManagerProducts();
             } else {
                 this.showToast('获取商品数据失败', 'error');
@@ -1871,15 +2083,18 @@ class ShopSystem {
     // 渲染管理页面商品
     renderManagerProducts() {
         const managerGrid = document.getElementById('manager-grid');
-        
+        console.log('渲染管理商品, managerGrid元素:', managerGrid);
+
         // 清理旧的卡片实例
         this.clearProductCards('manager');
-        
+
         if (this.products.length === 0) {
             managerGrid.innerHTML = '<div class="no-products">暂无商品</div>';
             return;
         }
-        
+
+        console.log('准备渲染商品数量:', this.products.length);
+
         // 清空现有内容
         managerGrid.innerHTML = '';
         
@@ -1892,7 +2107,8 @@ class ShopSystem {
                 className: 'manager-product-card',
                 showActions: true,
                 onEdit: (productId) => this.editProduct(productId),
-                onDelete: (productId) => this.deleteProduct(productId)
+                onDelete: (productId) => this.deleteProduct(productId),
+                onToggleHot: (productId, isHot) => this.toggleProductHot(productId, isHot)
             });
             
             // 存储卡片实例以便后续管理
@@ -1926,6 +2142,25 @@ class ShopSystem {
             // 设置定制选项
             document.getElementById('product-has-sweetness').checked = product.has_sweetness || false;
             document.getElementById('product-has-ice-level').checked = product.has_ice_level || false;
+
+            // 设置爆款选项
+            document.getElementById('product-is-hot').checked = product.is_hot || false;
+            document.getElementById('product-hot-priority').value = product.hot_priority || 50;
+            document.getElementById('product-hot-badge').value = product.hot_badge_text || '🔥爆款';
+
+            // 设置折扣价格
+            if (product.discount_price) {
+                document.getElementById('product-discount-price').value = product.discount_price;
+                // 触发折扣预览更新
+                const event = new Event('input', { bubbles: true });
+                document.getElementById('product-discount-price').dispatchEvent(event);
+            }
+
+            // 显示/隐藏爆款设置
+            const hotPriorityGroup = document.getElementById('hot-priority-group');
+            if (hotPriorityGroup) {
+                hotPriorityGroup.style.display = product.is_hot ? 'block' : 'none';
+            }
         } else {
             // 添加模式
             title.textContent = '新增商品';
@@ -1935,6 +2170,19 @@ class ShopSystem {
             // 重置定制选项
             document.getElementById('product-has-sweetness').checked = false;
             document.getElementById('product-has-ice-level').checked = false;
+
+            // 重置爆款选项
+            document.getElementById('product-is-hot').checked = false;
+            document.getElementById('product-hot-priority').value = 50;
+            document.getElementById('product-hot-badge').value = '🔥爆款';
+            document.getElementById('product-discount-price').value = '';
+            document.getElementById('discount-preview').style.display = 'none';
+
+            // 隐藏爆款设置
+            const hotPriorityGroup = document.getElementById('hot-priority-group');
+            if (hotPriorityGroup) {
+                hotPriorityGroup.style.display = 'none';
+            }
         }
         
         modal.classList.add('show');
@@ -2081,53 +2329,71 @@ class ShopSystem {
     
     // 购买商品
     async purchaseProduct(productId) {
+        console.log('=== 购买商品开始 ===');
+        console.log('Product ID:', productId);
+        console.log('当前用户信息:', this.userProfile);
+        console.log('当前用户角色:', this.userRole);
+
+        const token = localStorage.getItem('authToken');
+        console.log('Auth Token存在:', !!token);
+        console.log('Token内容:', token ? token.substring(0, 50) + '...' : 'null');
+
         const product = this.products.find(p => p.id === productId);
         if (!product) {
             this.showToast('商品不存在', 'error');
             return;
         }
-        
+
         if (product.stock <= 0) {
             this.showToast('商品库存不足', 'error');
             return;
         }
         
         try {
+            const token = localStorage.getItem('authToken');
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            // 如果有token，添加Authorization头部
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            console.log('发送购买请求...');
+            console.log('Headers:', headers);
+            console.log('Request body:', { productId: productId, quantity: 1 });
+
             const response = await fetch('/api/products/purchase', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                },
+                headers: headers,
                 body: JSON.stringify({
                     productId: productId,
                     quantity: 1
                 })
             });
+
+            console.log('Response status:', response.status);
+            console.log('Response headers:', response.headers);
             
             const data = await response.json();
+            console.log('服务器响应:', data);
+
             if (data.success) {
-                // 更新本地库存
-                product.stock -= 1;
-                
-                // 创建订单记录
-                this.addOrder({
-                    productId: product.id,
-                    productName: product.name,
-                    productImage: product.image_url,
-                    quantity: 1,
-                    price: product.price,
-                    totalPrice: product.price,
-                    customization: null
-                });
-                
+                // 更新本地库存（使用服务器返回的库存信息）
+                if (data.data && data.data.remainingStock !== undefined) {
+                    product.stock = data.data.remainingStock;
+                } else {
+                    product.stock -= 1;
+                }
+
                 // 更新商品卡片显示
                 this.updateProductCard(productId, product);
-                
+
                 // 显示购买成功页面
                 this.showPurchaseSuccess(product);
-                
-                this.showToast('预定成功！', 'success');
+
+                this.showToast('购买成功！', 'success');
             } else {
                 this.showToast(data.message || '购买失败', 'error');
             }
@@ -2136,7 +2402,55 @@ class ShopSystem {
             this.showToast('网络错误，请检查连接', 'error');
         }
     }
-    
+
+    // 初始化键盘快捷键
+    initKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            // ESC键返回上一页
+            if (e.key === 'Escape') {
+                // 如果有模态框打开，先关闭模态框
+                const modals = document.querySelectorAll('.modal.show, .modal-overlay.show');
+                if (modals.length > 0) {
+                    return; // 让模态框自己处理ESC键
+                }
+
+                // 如果侧边栏打开，先关闭侧边栏
+                if (this.sidebar && this.sidebar.isOpen) {
+                    this.sidebar.close();
+                    return;
+                }
+
+                // 否则返回上一页
+                if (this.canGoBack()) {
+                    this.goBack();
+                } else {
+                    // 如果不能返回，且不在商店页面，则返回商店
+                    if (this.currentContentPage !== 'shop') {
+                        this.showContentPage('shop');
+                    }
+                }
+            }
+
+            // Alt + 左箭头 = 返回上一页
+            if (e.altKey && e.key === 'ArrowLeft') {
+                e.preventDefault();
+                this.goBack();
+            }
+
+            // Ctrl + H = 返回首页（商店）
+            if (e.ctrlKey && e.key === 'h') {
+                e.preventDefault();
+                this.showContentPage('shop');
+            }
+        });
+
+        console.log('⌨️ 键盘快捷键已初始化');
+        console.log('快捷键说明:');
+        console.log('  ESC - 返回上一页或关闭侧边栏');
+        console.log('  Alt + ← - 返回上一页');
+        console.log('  Ctrl + H - 返回商店');
+    }
+
     // 显示购买成功页面
     showPurchaseSuccess(product) {
         // 切换到购买确认页面
@@ -2301,17 +2615,27 @@ class ShopSystem {
     
     // 处理商品购买（检查是否需要定制）
     handleProductPurchase(productId) {
+        console.log('=== handleProductPurchase 被调用 ===');
+        console.log('商品ID:', productId);
+        console.log('所有商品:', this.products);
+
         const product = this.products.find(p => p.id === productId);
         if (!product) {
+            console.log('❌ 商品不存在');
             this.showToast('商品不存在', 'error');
             return;
         }
-        
+
+        console.log('✅ 找到商品:', product);
+        console.log('需要甜度定制:', product.has_sweetness);
+        console.log('需要冰度定制:', product.has_ice_level);
+
         // 检查是否需要定制选择
         if (product.has_sweetness || product.has_ice_level) {
+            console.log('➡️ 显示定制弹窗');
             this.showCustomizationModal(product);
         } else {
-            // 直接购买
+            console.log('➡️ 直接购买');
             this.purchaseProduct(productId);
         }
     }
@@ -2319,30 +2643,60 @@ class ShopSystem {
     // 显示定制选择弹窗
     showCustomizationModal(product) {
         const modal = document.getElementById('customization-modal');
+        const modalContent = modal.querySelector('.modal-content');
         const productInfo = document.getElementById('customization-product-info');
         const sweetnessSection = document.getElementById('sweetness-section');
         const iceSection = document.getElementById('ice-section');
-        
-        // 显示商品信息
-        productInfo.innerHTML = `
-            <div class="customization-product-image">${product.image_url || '🍋'}</div>
-            <div class="customization-product-details">
-                <h3>${this.escapeHtml(product.name)}</h3>
-                <div class="customization-product-price">¥${product.price}</div>
-            </div>
-        `;
-        
+
+        // 根据是否为热门商品设置不同样式
+        if (product.is_hot) {
+            // 热门商品使用华丽模板
+            modalContent.classList.add('hot-product-modal');
+            modalContent.classList.remove('normal-product-modal');
+
+            // 显示商品信息（华丽版）
+            productInfo.innerHTML = `
+                <div class="customization-product-image hot-product-image">${product.image_url || '🍋'}</div>
+                <div class="customization-product-details hot-product-details">
+                    <div class="hot-product-name-container">
+                        <h3 class="hot-product-name">${this.escapeHtml(product.name)}</h3>
+                        ${product.hot_badge_text ? `<span class="hot-badge">${product.hot_badge_text}</span>` : '<span class="hot-badge">🔥</span>'}
+                    </div>
+                    <div class="customization-product-price hot-product-price">
+                        ${product.discount_price ?
+                            `<span class="original-price">¥${product.price}</span>
+                             <span class="discount-price">¥${product.discount_price}</span>` :
+                            `¥${product.price}`
+                        }
+                    </div>
+                </div>
+            `;
+        } else {
+            // 普通商品使用简单模板
+            modalContent.classList.add('normal-product-modal');
+            modalContent.classList.remove('hot-product-modal');
+
+            // 显示商品信息（简单版）
+            productInfo.innerHTML = `
+                <div class="customization-product-image">${product.image_url || '🍋'}</div>
+                <div class="customization-product-details">
+                    <h3>${this.escapeHtml(product.name)}</h3>
+                    <div class="customization-product-price">¥${product.price}</div>
+                </div>
+            `;
+        }
+
         // 显示/隐藏定制选项
         sweetnessSection.style.display = product.has_sweetness ? 'block' : 'none';
         iceSection.style.display = product.has_ice_level ? 'block' : 'none';
-        
+
         // 重置选择为默认值
         document.getElementById('sweetness-3').checked = true;
         document.getElementById('ice-normal').checked = true;
-        
+
         // 存储当前商品
         this.currentCustomizingProduct = product;
-        
+
         modal.classList.add('show');
     }
     
@@ -2398,12 +2752,19 @@ class ShopSystem {
         }
         
         try {
+            const token = localStorage.getItem('authToken');
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            // 如果有token，添加Authorization头部
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             const response = await fetch('/api/products/purchase', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                },
+                headers: headers,
                 body: JSON.stringify({
                     productId: productId,
                     quantity: 1,
@@ -2412,28 +2773,23 @@ class ShopSystem {
             });
             
             const data = await response.json();
+            console.log('定制购买服务器响应:', data);
+
             if (data.success) {
-                // 更新本地库存
-                product.stock -= 1;
-                
-                // 创建订单记录（包含定制信息）
-                this.addOrder({
-                    productId: product.id,
-                    productName: product.name,
-                    productImage: product.image_url,
-                    quantity: 1,
-                    price: product.price,
-                    totalPrice: product.price,
-                    customization: customization
-                });
-                
+                // 更新本地库存（使用服务器返回的库存信息）
+                if (data.data && data.data.remainingStock !== undefined) {
+                    product.stock = data.data.remainingStock;
+                } else {
+                    product.stock -= 1;
+                }
+
                 // 更新商品卡片显示
                 this.updateProductCard(productId, product);
-                
+
                 // 显示购买成功页面（包含定制信息）
                 this.showPurchaseSuccessWithCustomization(product, customization);
-                
-                this.showToast('预定成功！', 'success');
+
+                this.showToast('购买成功！', 'success');
             } else {
                 this.showToast(data.message || '购买失败', 'error');
             }
@@ -2510,7 +2866,11 @@ class ShopSystem {
             category: document.getElementById('product-category').value,
             stock: parseInt(document.getElementById('product-stock').value) || 0,
             hasSweetness: document.getElementById('product-has-sweetness').checked,
-            hasIceLevel: document.getElementById('product-has-ice-level').checked
+            hasIceLevel: document.getElementById('product-has-ice-level').checked,
+            isHot: document.getElementById('product-is-hot').checked,
+            hotPriority: parseInt(document.getElementById('product-hot-priority').value) || 50,
+            hotBadgeText: document.getElementById('product-hot-badge').value.trim() || '🔥爆款',
+            discountPrice: parseFloat(document.getElementById('product-discount-price').value) || null
         };
         
         if (!formData.name || !formData.price || !formData.category) {
@@ -2524,11 +2884,18 @@ class ShopSystem {
                 : '/api/products';
             const method = this.editingProductId ? 'PUT' : 'POST';
             
+            const token = localStorage.getItem('authToken');
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             const response = await fetch(url, {
                 method: method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: headers,
                 body: JSON.stringify(formData)
             });
             
@@ -2546,41 +2913,6 @@ class ShopSystem {
         }
     }
 
-    // 退出登录
-    handleLogout(e) {
-        if (e) e.preventDefault();
-        
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('shopUserProfile');
-        this.token = null;
-        this.currentEmail = '';
-        this.userProfile = {
-            username: '',
-            email: '',
-            avatar: '👤',
-            role: 'user'
-        };
-        this.userRole = 'user';
-        
-        // 更新管理员菜单状态
-        this.updateManagerMenus('user');
-        
-        // 停止通知轮询
-        this.stopNotificationPolling();
-        
-        // 显示认证容器，隐藏主界面
-        document.getElementById('auth-container').style.display = 'block';
-        document.querySelectorAll('.content-page').forEach(page => {
-            page.style.display = 'none';
-        });
-        
-        // 隐藏汉堡菜单按钮
-        document.getElementById('sidebar-toggle').classList.remove('show');
-        
-        this.sidebar.close();
-        this.showLoginPage();
-        this.showToast('已退出登录', 'warning');
-    }
 
     // 批量上传商品价格和库存
     async handleBatchUpload() {
@@ -3421,6 +3753,49 @@ class ShopSystem {
         }
     }
     
+    // 切换商品爆款状态
+    async toggleProductHot(productId, isHot) {
+        try {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                this.showToast('请先登录', 'error');
+                return;
+            }
+
+            const hotPriority = isHot ? 50 : 0; // 设置默认优先级
+            const hotBadgeText = isHot ? '🔥爆款' : '爆款';
+
+            const response = await fetch(`/api/products/${productId}/hot`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    isHot,
+                    hotPriority,
+                    hotBadgeText
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                this.showToast(data.message, 'success');
+                // 重新加载商品列表
+                await this.loadManagerProducts();
+                // 如果在商店页面，也更新商店页面的商品显示
+                if (this.isProductsLoaded) {
+                    await this.loadProducts(true);
+                }
+            } else {
+                this.showToast(data.message, 'error');
+            }
+        } catch (error) {
+            console.error('切换爆款状态失败:', error);
+            this.showToast('操作失败，请重试', 'error');
+        }
+    }
+
     // 为商品表单加载分类选项
     async loadCategoryOptions() {
         const categorySelect = document.getElementById('product-category');
@@ -3457,8 +3832,40 @@ class ShopSystem {
 
 // 初始化应用
 let app;
+// 全局退出登录函数
+function handleLogoutClick() {
+    console.log('全局退出登录函数被调用');
+    if (window.app && window.app.handleLogout) {
+        window.app.handleLogout();
+    } else {
+        alert('退出登录功能暂时不可用，请刷新页面重试');
+    }
+}
+
+// 全局导航函数 - 备用方案
+function navigateToShop() {
+    console.log('navigateToShop called');
+    if (window.app && window.app.showContentPage) {
+        window.app.showContentPage('shop');
+    } else {
+        console.error('App object or showContentPage method not available');
+        alert('导航功能暂时不可用，请刷新页面重试');
+    }
+}
+
+// 全局侧边栏切换函数 - 备用方案
+function toggleAppSidebar() {
+    console.log('toggleAppSidebar called');
+    if (window.app && window.app.toggleSidebar) {
+        window.app.toggleSidebar();
+    } else {
+        console.error('App object or toggleSidebar method not available');
+    }
+}
+
+
 document.addEventListener('DOMContentLoaded', async () => {
-    app = new ShopSystem();
+    window.app = new ShopSystem();
     // 等待初始化完成（包括认证检查）
-    await app.init();
+    await window.app.init();
 });
