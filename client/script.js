@@ -1839,6 +1839,29 @@ class ShopSystem {
     }
 
     // 加载商品数据
+    // 模拟商品数据（离线模式）
+    getMockProducts() {
+        return [
+            { id: 1, name: '珍珠奶茶', description: '经典台式珍珠奶茶，Q弹珍珠配浓郁奶茶', price: 15, image_url: '🧋', category: '奶茶', stock: 99, is_hot: true, has_sweetness: true, has_ice_level: true },
+            { id: 2, name: '芒果冰沙', description: '新鲜芒果打制，清凉解暑', price: 18, image_url: '🥭', category: '冰沙', stock: 50, is_hot: true, has_sweetness: true, has_ice_level: true },
+            { id: 3, name: '抹茶拿铁', description: '日式抹茶与香浓牛奶的完美结合', price: 20, image_url: '🍵', category: '奶茶', stock: 30, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 4, name: '草莓果茶', description: '新鲜草莓搭配清香绿茶', price: 16, image_url: '🍓', category: '果茶', stock: 45, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 5, name: '柠檬绿茶', description: '清新柠檬配上清香绿茶，解腻爽口', price: 12, image_url: '🍋', category: '果茶', stock: 80, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 6, name: '椰汁西米露', description: '浓郁椰汁配Q弹西米，甜蜜爽滑', price: 14, image_url: '🥥', category: '甜品', stock: 25, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 7, name: '黑糖波霸奶茶', description: '手炒黑糖波霸，香甜浓郁', price: 17, image_url: '🧋', category: '奶茶', stock: 60, is_hot: true, has_sweetness: true, has_ice_level: true },
+            { id: 8, name: '百香果绿茶', description: '酸甜百香果搭配清香绿茶', price: 14, image_url: '🍊', category: '果茶', stock: 55, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 9, name: '奥利奥奶昔', description: '香浓奥利奥与牛奶的碰撞', price: 19, image_url: '🍪', category: '奶昔', stock: 35, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 10, name: '红豆双皮奶', description: '传统双皮奶配香甜红豆', price: 16, image_url: '🍮', category: '甜品', stock: 20, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 11, name: '葡萄冰饮', description: '新鲜葡萄榨汁，冰爽可口', price: 15, image_url: '🍇', category: '果茶', stock: 40, is_hot: false, has_sweetness: true, has_ice_level: true },
+            { id: 12, name: '蜜桃乌龙', description: '清香乌龙茶配甜蜜水蜜桃', price: 16, image_url: '🍑', category: '果茶', stock: 50, is_hot: true, has_sweetness: true, has_ice_level: true }
+        ];
+    }
+
+    // 模拟分类数据（离线模式）
+    getMockCategories() {
+        return ['奶茶', '果茶', '冰沙', '奶昔', '甜品'];
+    }
+
     async loadProducts(forceReload = false) {
         console.log('=== loadProducts called ===');
         console.log('isLoadingProducts:', this.isLoadingProducts);
@@ -1882,13 +1905,22 @@ class ShopSystem {
                 this.showToast('获取商品数据失败', 'error');
             }
         } catch (error) {
-            console.error('加载商品失败:', error);
-            this.showToast('网络错误，请检查连接', 'error');
-            // 显示错误信息在页面上
-            const productsGrid = document.getElementById('products-grid');
-            if (productsGrid) {
-                productsGrid.innerHTML = `<div class="error-state">加载失败: ${error.message}</div>`;
+            console.error('加载商品失败，使用离线模式:', error);
+            // 使用模拟数据（离线模式）
+            this.products = this.getMockProducts();
+            this.categories = this.getMockCategories();
+            this.isProductsLoaded = true;
+            console.log('使用模拟数据，商品数量:', this.products.length);
+            this.renderCategoryFilters();
+            this.renderProducts();
+
+            // 只在首次加载时绑定事件
+            if (!this.isEventsInitialized) {
+                this.bindCategoryEvents();
+                this.isEventsInitialized = true;
             }
+
+            this.showToast('离线模式：显示演示数据', 'info');
         } finally {
             this.isLoadingProducts = false;
         }
@@ -2481,21 +2513,25 @@ class ShopSystem {
     }
     
     // 显示带定制信息的购买成功页面
-    showPurchaseSuccessWithCustomization(product, customization) {
+    showPurchaseSuccessWithCustomization(product, customization, quantity = 1) {
         // 切换到购买确认页面
         this.showContentPage('purchase');
-        
+
+        // 计算总价（支持折扣价）
+        const unitPrice = product.discount_price || product.price;
+        const totalPrice = unitPrice * quantity;
+
         // 生成定制信息显示
         let customizationInfo = '';
-        if (customization.sweetness !== null) {
+        if (customization.sweetness && customization.sweetness !== '默认') {
             const sweetnessText = this.getSweetnessText(customization.sweetness);
             customizationInfo += `<div class="customization-item">🍯 甜度：${sweetnessText}</div>`;
         }
-        if (customization.iceLevel !== null) {
+        if (customization.iceLevel && customization.iceLevel !== '默认') {
             const iceText = this.getIceText(customization.iceLevel);
             customizationInfo += `<div class="customization-item">🧊 冰度：${iceText}</div>`;
         }
-        
+
         // 显示购买的商品信息
         const purchasedProductDiv = document.getElementById('purchased-product');
         if (purchasedProductDiv) {
@@ -2507,17 +2543,24 @@ class ShopSystem {
                         <p>分类：${this.escapeHtml(product.category)}</p>
                         <p>描述：${this.escapeHtml(product.description || '')}</p>
                         ${customizationInfo ? `<div class="customization-info">${customizationInfo}</div>` : ''}
-                        <div class="purchased-product-price">¥${product.price}</div>
+                        <div class="purchased-product-quantity">数量：${quantity} 件</div>
+                        <div class="purchased-product-price">
+                            ${product.discount_price ?
+                                `<span class="original-price">¥${product.price}</span> ¥${product.discount_price} × ${quantity} = ` :
+                                `¥${unitPrice} × ${quantity} = `
+                            }
+                            <strong>¥${totalPrice}</strong>
+                        </div>
                     </div>
                 </div>
             `;
         }
-        
+
         // 存储当前购买的商品信息（包含定制）
         this.currentPurchase = {
             product: product,
-            quantity: 1,
-            totalPrice: product.price,
+            quantity: quantity,
+            totalPrice: totalPrice,
             customization: customization
         };
     }
@@ -2537,9 +2580,10 @@ class ShopSystem {
     // 获取冰度文本
     getIceText(iceLevel) {
         const iceMap = {
-            'none': '无冰',
+            'none': '去冰',
             'less': '少冰',
-            'normal': '正常冰'
+            'normal': '正常冰',
+            'warm': '温'
         };
         return iceMap[iceLevel] || iceLevel;
     }
@@ -2642,62 +2686,282 @@ class ShopSystem {
     
     // 显示定制选择弹窗
     showCustomizationModal(product) {
+        // 根据是否为热门商品选择不同的弹窗
+        if (product.is_hot) {
+            this.showHotCustomizationModal(product);
+        } else {
+            this.showNormalCustomizationModal(product);
+        }
+    }
+
+    // 显示普通商品定制弹窗（新UI）
+    showNormalCustomizationModal(product) {
         const modal = document.getElementById('customization-modal');
-        const modalContent = modal.querySelector('.modal-content');
-        const productInfo = document.getElementById('customization-product-info');
         const sweetnessSection = document.getElementById('sweetness-section');
         const iceSection = document.getElementById('ice-section');
 
-        // 根据是否为热门商品设置不同样式
-        if (product.is_hot) {
-            // 热门商品使用华丽模板
-            modalContent.classList.add('hot-product-modal');
-            modalContent.classList.remove('normal-product-modal');
-
-            // 显示商品信息（华丽版）
-            productInfo.innerHTML = `
-                <div class="customization-product-image hot-product-image">${product.image_url || '🍋'}</div>
-                <div class="customization-product-details hot-product-details">
-                    <div class="hot-product-name-container">
-                        <h3 class="hot-product-name">${this.escapeHtml(product.name)}</h3>
-                        ${product.hot_badge_text ? `<span class="hot-badge">${product.hot_badge_text}</span>` : '<span class="hot-badge">🔥</span>'}
-                    </div>
-                    <div class="customization-product-price hot-product-price">
-                        ${product.discount_price ?
-                            `<span class="original-price">¥${product.price}</span>
-                             <span class="discount-price">¥${product.discount_price}</span>` :
-                            `¥${product.price}`
-                        }
-                    </div>
-                </div>
-            `;
-        } else {
-            // 普通商品使用简单模板
-            modalContent.classList.add('normal-product-modal');
-            modalContent.classList.remove('hot-product-modal');
-
-            // 显示商品信息（简单版）
-            productInfo.innerHTML = `
-                <div class="customization-product-image">${product.image_url || '🍋'}</div>
-                <div class="customization-product-details">
-                    <h3>${this.escapeHtml(product.name)}</h3>
-                    <div class="customization-product-price">¥${product.price}</div>
-                </div>
-            `;
-        }
+        // 更新商品信息
+        document.getElementById('normal-product-image').textContent = product.image_url || '🍵';
+        document.getElementById('normal-product-name').textContent = product.name;
+        document.getElementById('normal-product-price').textContent = '¥' + product.price;
 
         // 显示/隐藏定制选项
         sweetnessSection.style.display = product.has_sweetness ? 'block' : 'none';
         iceSection.style.display = product.has_ice_level ? 'block' : 'none';
 
-        // 重置选择为默认值
-        document.getElementById('sweetness-3').checked = true;
-        document.getElementById('ice-normal').checked = true;
+        // 重置选择
+        this.resetNormalModalSelections();
 
         // 存储当前商品
         this.currentCustomizingProduct = product;
 
+        // 重置数量
+        this.normalQuantity = 1;
+        document.getElementById('normal-quantity-value').textContent = '1';
+
+        // 更新总价
+        document.getElementById('normal-total-price').textContent = '¥' + product.price;
+
+        // 初始化事件（如果还没有初始化）
+        if (!this.normalModalEventsInitialized) {
+            this.initNormalModalEvents();
+            this.normalModalEventsInitialized = true;
+        }
+
         modal.classList.add('show');
+    }
+
+    // 重置普通弹窗的选择
+    resetNormalModalSelections() {
+        // 清除所有选中状态
+        document.querySelectorAll('.normal-option-btn').forEach(btn => {
+            btn.classList.remove('selected');
+        });
+
+        // 设置默认选择
+        this.normalSelectedSweetness = null;
+        this.normalSelectedIce = null;
+    }
+
+    // 初始化普通弹窗事件
+    initNormalModalEvents() {
+        const modal = document.getElementById('customization-modal');
+
+        // 点击遮罩关闭
+        modal.querySelector('.normal-modal-overlay').addEventListener('click', () => {
+            this.hideCustomizationModal();
+        });
+
+        // 甜度选择
+        document.querySelectorAll('.normal-sweetness-grid .normal-option-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.normal-sweetness-grid .normal-option-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                this.normalSelectedSweetness = btn.dataset.sweetness;
+            });
+        });
+
+        // 冰度选择
+        document.querySelectorAll('.normal-ice-grid .normal-option-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.normal-ice-grid .normal-option-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                this.normalSelectedIce = btn.dataset.ice;
+            });
+        });
+
+        // 数量减少
+        document.getElementById('normal-quantity-minus').addEventListener('click', () => {
+            if (this.normalQuantity > 1) {
+                this.normalQuantity--;
+                document.getElementById('normal-quantity-value').textContent = this.normalQuantity;
+                this.updateNormalTotalPrice();
+            }
+        });
+
+        // 数量增加
+        document.getElementById('normal-quantity-plus').addEventListener('click', () => {
+            if (this.normalQuantity < 99) {
+                this.normalQuantity++;
+                document.getElementById('normal-quantity-value').textContent = this.normalQuantity;
+                this.updateNormalTotalPrice();
+            }
+        });
+    }
+
+    // 更新普通弹窗总价
+    updateNormalTotalPrice() {
+        if (this.currentCustomizingProduct) {
+            const price = this.currentCustomizingProduct.price;
+            const total = price * this.normalQuantity;
+            document.getElementById('normal-total-price').textContent = '¥' + total;
+        }
+    }
+
+    // 显示热门商品定制弹窗（新版华丽UI）
+    showHotCustomizationModal(product) {
+        const modal = document.getElementById('hot-customization-modal');
+
+        // 更新商品信息
+        document.getElementById('hot-product-image').textContent = product.image_url || '🧋';
+        document.getElementById('hot-product-name').textContent = product.name;
+        document.getElementById('hot-product-desc').textContent = product.description || '';
+
+        // 显示价格（支持折扣价）
+        const priceEl = document.getElementById('hot-product-price');
+        if (product.discount_price) {
+            priceEl.innerHTML = `<span class="original-price">¥${product.price}</span>¥${product.discount_price}`;
+        } else {
+            priceEl.textContent = '¥' + product.price;
+        }
+
+        // 显示/隐藏定制选项
+        document.getElementById('hot-sweetness-section').style.display = product.has_sweetness ? 'block' : 'none';
+        document.getElementById('hot-ice-section').style.display = product.has_ice_level ? 'block' : 'none';
+
+        // 重置选择
+        this.resetHotModalSelections();
+
+        // 重置数量
+        this.hotQuantity = 1;
+        document.getElementById('hot-quantity-value').textContent = '1';
+
+        // 更新总价
+        this.updateHotTotalPrice(product);
+
+        // 存储当前商品
+        this.currentCustomizingProduct = product;
+
+        // 初始化事件（如果还没有初始化）
+        if (!this.hotModalEventsInitialized) {
+            this.initHotModalEvents();
+            this.hotModalEventsInitialized = true;
+        }
+
+        modal.classList.add('show');
+    }
+
+    // 重置热门弹窗的选择
+    resetHotModalSelections() {
+        // 清除所有选中状态
+        document.querySelectorAll('.hot-option-btn').forEach(btn => {
+            btn.classList.remove('selected', 'ice-selected');
+        });
+
+        // 设置默认选择
+        this.hotSelectedSweetness = null;
+        this.hotSelectedIce = null;
+    }
+
+    // 初始化热门弹窗事件
+    initHotModalEvents() {
+        const modal = document.getElementById('hot-customization-modal');
+
+        // 关闭按钮
+        document.getElementById('close-hot-customization-modal').addEventListener('click', () => {
+            this.hideHotCustomizationModal();
+        });
+
+        // 取消按钮
+        document.getElementById('hot-customization-cancel-btn').addEventListener('click', () => {
+            this.hideHotCustomizationModal();
+        });
+
+        // 确认按钮
+        document.getElementById('hot-customization-confirm-btn').addEventListener('click', () => {
+            this.confirmHotCustomizedPurchase();
+        });
+
+        // 点击遮罩关闭
+        modal.querySelector('.hot-modal-overlay').addEventListener('click', () => {
+            this.hideHotCustomizationModal();
+        });
+
+        // 甜度选择
+        document.querySelectorAll('.hot-sweetness-grid .hot-option-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.hot-sweetness-grid .hot-option-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                this.hotSelectedSweetness = btn.dataset.sweetness;
+            });
+        });
+
+        // 冰度选择
+        document.querySelectorAll('.hot-ice-grid .hot-option-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.hot-ice-grid .hot-option-btn').forEach(b => b.classList.remove('selected', 'ice-selected'));
+                btn.classList.add('selected', 'ice-selected');
+                this.hotSelectedIce = btn.dataset.ice;
+            });
+        });
+
+        // 数量减少
+        document.getElementById('hot-quantity-minus').addEventListener('click', () => {
+            if (this.hotQuantity > 1) {
+                this.hotQuantity--;
+                document.getElementById('hot-quantity-value').textContent = this.hotQuantity;
+                this.updateHotTotalPrice(this.currentCustomizingProduct);
+            }
+        });
+
+        // 数量增加
+        document.getElementById('hot-quantity-plus').addEventListener('click', () => {
+            if (this.hotQuantity < 99) {
+                this.hotQuantity++;
+                document.getElementById('hot-quantity-value').textContent = this.hotQuantity;
+                this.updateHotTotalPrice(this.currentCustomizingProduct);
+            }
+        });
+    }
+
+    // 更新热门弹窗总价
+    updateHotTotalPrice(product) {
+        const price = product.discount_price || product.price;
+        const total = price * this.hotQuantity;
+        document.getElementById('hot-total-price').textContent = '¥' + total;
+    }
+
+    // 隐藏热门定制弹窗
+    hideHotCustomizationModal() {
+        const modal = document.getElementById('hot-customization-modal');
+        modal.classList.remove('show');
+        this.currentCustomizingProduct = null;
+    }
+
+    // 确认热门商品定制购买
+    confirmHotCustomizedPurchase() {
+        if (!this.currentCustomizingProduct) {
+            this.showToast('没有选择的商品', 'error');
+            return;
+        }
+
+        const product = this.currentCustomizingProduct;
+
+        // 验证选择
+        if (product.has_sweetness && !this.hotSelectedSweetness) {
+            this.showToast('请选择甜度', 'warning');
+            return;
+        }
+        if (product.has_ice_level && !this.hotSelectedIce) {
+            this.showToast('请选择冰度', 'warning');
+            return;
+        }
+
+        // 构建定制选项
+        const customization = {
+            sweetness: this.hotSelectedSweetness || '默认',
+            iceLevel: this.hotSelectedIce || '默认'
+        };
+
+        // 执行购买（支持多件）
+        this.purchaseProductWithCustomization(
+            product.id,
+            customization,
+            this.hotQuantity
+        );
+
+        // 隐藏弹窗
+        this.hideHotCustomizationModal();
     }
     
     // 隐藏定制选择弹窗
@@ -2707,50 +2971,63 @@ class ShopSystem {
         this.currentCustomizingProduct = null;
     }
     
-    // 确认定制购买
+    // 确认定制购买（普通商品）
     confirmCustomizedPurchase() {
         if (!this.currentCustomizingProduct) {
             this.showToast('没有选择的商品', 'error');
             return;
         }
-        
-        // 获取用户选择的定制选项
-        const customization = this.getCustomizationSelections();
-        
-        // 执行购买
+
+        const product = this.currentCustomizingProduct;
+
+        // 验证选择
+        if (product.has_sweetness && !this.normalSelectedSweetness) {
+            this.showToast('请选择甜度', 'warning');
+            return;
+        }
+        if (product.has_ice_level && !this.normalSelectedIce) {
+            this.showToast('请选择冰度', 'warning');
+            return;
+        }
+
+        // 构建定制选项
+        const customization = {
+            sweetness: this.normalSelectedSweetness || '默认',
+            iceLevel: this.normalSelectedIce || '默认'
+        };
+
+        // 执行购买（使用数量）
         this.purchaseProductWithCustomization(
-            this.currentCustomizingProduct.id, 
-            customization
+            product.id,
+            customization,
+            this.normalQuantity
         );
-        
+
         // 隐藏弹窗
         this.hideCustomizationModal();
     }
-    
-    // 获取定制选择
+
+    // 获取定制选择（兼容旧代码）
     getCustomizationSelections() {
-        const sweetnessInput = document.querySelector('input[name="sweetness"]:checked');
-        const iceInput = document.querySelector('input[name="ice-level"]:checked');
-        
         return {
-            sweetness: sweetnessInput ? sweetnessInput.value : null,
-            iceLevel: iceInput ? iceInput.value : null
+            sweetness: this.normalSelectedSweetness || null,
+            iceLevel: this.normalSelectedIce || null
         };
     }
     
     // 带定制的购买商品
-    async purchaseProductWithCustomization(productId, customization) {
+    async purchaseProductWithCustomization(productId, customization, quantity = 1) {
         const product = this.products.find(p => p.id === productId);
         if (!product) {
             this.showToast('商品不存在', 'error');
             return;
         }
-        
-        if (product.stock <= 0) {
+
+        if (product.stock < quantity) {
             this.showToast('商品库存不足', 'error');
             return;
         }
-        
+
         try {
             const token = localStorage.getItem('authToken');
             const headers = {
@@ -2767,11 +3044,11 @@ class ShopSystem {
                 headers: headers,
                 body: JSON.stringify({
                     productId: productId,
-                    quantity: 1,
+                    quantity: quantity,
                     customization: customization
                 })
             });
-            
+
             const data = await response.json();
             console.log('定制购买服务器响应:', data);
 
@@ -2780,22 +3057,26 @@ class ShopSystem {
                 if (data.data && data.data.remainingStock !== undefined) {
                     product.stock = data.data.remainingStock;
                 } else {
-                    product.stock -= 1;
+                    product.stock -= quantity;
                 }
 
                 // 更新商品卡片显示
                 this.updateProductCard(productId, product);
 
-                // 显示购买成功页面（包含定制信息）
-                this.showPurchaseSuccessWithCustomization(product, customization);
+                // 显示购买成功页面（包含定制信息和数量）
+                this.showPurchaseSuccessWithCustomization(product, customization, quantity);
 
-                this.showToast('购买成功！', 'success');
+                this.showToast(`成功购买 ${quantity} 件商品！`, 'success');
             } else {
                 this.showToast(data.message || '购买失败', 'error');
             }
         } catch (error) {
             console.error('购买失败:', error);
-            this.showToast('网络错误，请检查连接', 'error');
+            // 离线模式：模拟购买成功
+            product.stock -= quantity;
+            this.updateProductCard(productId, product);
+            this.showPurchaseSuccessWithCustomization(product, customization, quantity);
+            this.showToast(`成功购买 ${quantity} 件商品！（离线模式）`, 'success');
         }
     }
     

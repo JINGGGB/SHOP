@@ -458,69 +458,177 @@
         </div>
     </div>
 
-    <!-- 定制选择弹窗 -->
+    <!-- 定制选择弹窗 - 普通版（新UI） -->
     <div id="customization-modal" class="modal">
-        <div class="modal-content customization-modal-content">
-            <div class="modal-header">
-                <h3 id="customization-modal-title">🧋 个性化定制</h3>
-                <button id="close-customization-modal" class="close-btn">×</button>
-            </div>
-            
-            <div class="customization-product-info" id="customization-product-info">
-                <!-- 商品信息将在这里显示 -->
-            </div>
-            
-            <div class="customization-options-container">
+        <div class="normal-modal-overlay"></div>
+        <div class="normal-modal-container">
+            <!-- 头部 -->
+            <header class="normal-modal-header">
+                <div class="normal-modal-header-content">
+                    <span class="normal-modal-icon">🥤</span>
+                    <h1 class="normal-modal-title">个性化定制</h1>
+                </div>
+                <button id="close-customization-modal" class="normal-modal-close">
+                    <span>×</span>
+                </button>
+            </header>
+
+            <!-- 内容区域 -->
+            <main class="normal-modal-body">
+                <!-- 商品信息 -->
+                <div class="normal-product-info" id="customization-product-info">
+                    <div class="normal-product-image" id="normal-product-image">🍵</div>
+                    <div class="normal-product-details">
+                        <h2 class="normal-product-name" id="normal-product-name">商品名称</h2>
+                        <p class="normal-product-price" id="normal-product-price">¥0</p>
+                    </div>
+                </div>
+
                 <!-- 甜度选择 -->
-                <div class="customization-section" id="sweetness-section" style="display: none;">
-                    <h4>🍯 选择甜度</h4>
-                    <div class="sweetness-options">
-                        <div class="sweetness-option" data-sweetness="0">
-                            <input type="radio" name="sweetness" value="0" id="sweetness-0">
-                            <label for="sweetness-0">0糖</label>
-                        </div>
-                        <div class="sweetness-option" data-sweetness="3">
-                            <input type="radio" name="sweetness" value="3" id="sweetness-3" checked>
-                            <label for="sweetness-3">3分糖</label>
-                        </div>
-                        <div class="sweetness-option" data-sweetness="5">
-                            <input type="radio" name="sweetness" value="5" id="sweetness-5">
-                            <label for="sweetness-5">5分糖</label>
-                        </div>
-                        <div class="sweetness-option" data-sweetness="7">
-                            <input type="radio" name="sweetness" value="7" id="sweetness-7">
-                            <label for="sweetness-7">7分糖</label>
-                        </div>
-                        <div class="sweetness-option" data-sweetness="10">
-                            <input type="radio" name="sweetness" value="10" id="sweetness-10">
-                            <label for="sweetness-10">全糖</label>
-                        </div>
+                <div class="normal-option-section" id="sweetness-section" style="display: none;">
+                    <h3 class="normal-option-header">
+                        <span>✨</span>
+                        <span>🍯</span>
+                        选择甜度
+                    </h3>
+                    <div class="normal-option-grid normal-sweetness-grid">
+                        <button class="normal-option-btn" data-sweetness="0">0糖</button>
+                        <button class="normal-option-btn" data-sweetness="3">3分糖</button>
+                        <button class="normal-option-btn" data-sweetness="5">5分糖</button>
+                        <button class="normal-option-btn" data-sweetness="7">7分糖</button>
+                        <button class="normal-option-btn" data-sweetness="10">全糖</button>
                     </div>
                 </div>
-                
+
                 <!-- 冰度选择 -->
-                <div class="customization-section" id="ice-section" style="display: none;">
-                    <h4>🧊 选择冰度</h4>
-                    <div class="ice-options">
-                        <div class="ice-option" data-ice="none">
-                            <input type="radio" name="ice-level" value="none" id="ice-none">
-                            <label for="ice-none">无冰</label>
-                        </div>
-                        <div class="ice-option" data-ice="less">
-                            <input type="radio" name="ice-level" value="less" id="ice-less">
-                            <label for="ice-less">少冰</label>
-                        </div>
-                        <div class="ice-option" data-ice="normal">
-                            <input type="radio" name="ice-level" value="normal" id="ice-normal" checked>
-                            <label for="ice-normal">正常冰</label>
-                        </div>
+                <div class="normal-option-section" id="ice-section" style="display: none;">
+                    <h3 class="normal-option-header">
+                        <span>✨</span>
+                        <span>🧊</span>
+                        选择冰度
+                    </h3>
+                    <div class="normal-option-grid normal-ice-grid">
+                        <button class="normal-option-btn" data-ice="normal">正常冰</button>
+                        <button class="normal-option-btn" data-ice="less">少冰</button>
+                        <button class="normal-option-btn" data-ice="none">去冰</button>
+                    </div>
+                </div>
+
+                <!-- 数量选择 -->
+                <div class="normal-option-section">
+                    <h3 class="normal-option-header">
+                        <span>✨</span>
+                        <span>🛒</span>
+                        选择数量
+                    </h3>
+                    <div class="normal-quantity-selector">
+                        <button class="normal-quantity-btn" id="normal-quantity-minus">-</button>
+                        <span class="normal-quantity-value" id="normal-quantity-value">1</span>
+                        <button class="normal-quantity-btn" id="normal-quantity-plus">+</button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 底部按钮 -->
+            <footer class="normal-modal-footer">
+                <div class="normal-total-price">
+                    <span class="normal-total-label">总计</span>
+                    <span class="normal-total-value" id="normal-total-price">¥0</span>
+                </div>
+                <div class="normal-footer-buttons">
+                    <button id="customization-cancel-btn" class="normal-cancel-btn">取消</button>
+                    <button id="customization-confirm-btn" class="normal-confirm-btn">确认购买</button>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <!-- 特惠定制弹窗 - 新版华丽UI -->
+    <div id="hot-customization-modal" class="modal">
+        <div class="hot-modal-overlay"></div>
+        <div class="hot-modal-container">
+            <!-- 头部渐变 -->
+            <div class="hot-modal-header">
+                <div class="hot-modal-header-content">
+                    <span class="hot-modal-icon">☕</span>
+                    <h2 class="hot-modal-title">个性化定制</h2>
+                </div>
+                <button id="close-hot-customization-modal" class="hot-modal-close">×</button>
+            </div>
+
+            <!-- 内容区域 -->
+            <div class="hot-modal-body">
+                <!-- 商品信息 -->
+                <div class="hot-product-info">
+                    <div class="hot-product-image" id="hot-product-image">🧋</div>
+                    <div class="hot-product-details">
+                        <h3 class="hot-product-name" id="hot-product-name">珍珠奶茶</h3>
+                        <p class="hot-product-price" id="hot-product-price">¥15</p>
+                        <p class="hot-product-desc" id="hot-product-desc">经典台式珍珠奶茶</p>
+                    </div>
+                    <div class="hot-special-badge">
+                        <div class="hot-badge-icon">✨</div>
+                        <p class="hot-badge-text">特惠</p>
+                    </div>
+                </div>
+
+                <!-- 甜度选择 -->
+                <div class="hot-option-section" id="hot-sweetness-section">
+                    <div class="hot-option-header">
+                        <span class="hot-option-icon">☕</span>
+                        <h4>选择甜度</h4>
+                    </div>
+                    <div class="hot-option-grid hot-sweetness-grid">
+                        <button class="hot-option-btn" data-sweetness="0">0糖</button>
+                        <button class="hot-option-btn" data-sweetness="3">3分糖</button>
+                        <button class="hot-option-btn" data-sweetness="5">5分糖</button>
+                        <button class="hot-option-btn" data-sweetness="7">7分糖</button>
+                        <button class="hot-option-btn" data-sweetness="10">全糖</button>
+                    </div>
+                </div>
+
+                <!-- 冰度选择 -->
+                <div class="hot-option-section" id="hot-ice-section">
+                    <div class="hot-option-header">
+                        <span class="hot-option-icon ice-icon">❄️</span>
+                        <h4>选择冰度</h4>
+                    </div>
+                    <div class="hot-option-grid hot-ice-grid">
+                        <button class="hot-option-btn" data-ice="normal">正常冰</button>
+                        <button class="hot-option-btn" data-ice="less">少冰</button>
+                        <button class="hot-option-btn" data-ice="none">去冰</button>
+                        <button class="hot-option-btn" data-ice="warm">温</button>
+                    </div>
+                </div>
+
+                <!-- 数量选择 -->
+                <div class="hot-option-section">
+                    <div class="hot-option-header">
+                        <span class="hot-option-icon quantity-icon">🛒</span>
+                        <h4>选择数量</h4>
+                    </div>
+                    <div class="hot-quantity-selector">
+                        <button class="hot-quantity-btn" id="hot-quantity-minus">-</button>
+                        <span class="hot-quantity-value" id="hot-quantity-value">1</span>
+                        <button class="hot-quantity-btn" id="hot-quantity-plus">+</button>
                     </div>
                 </div>
             </div>
-            
-            <div class="modal-actions">
-                <button type="button" id="customization-cancel-btn" class="btn-secondary">取消</button>
-                <button type="button" id="customization-confirm-btn" class="btn-primary">确认购买</button>
+
+            <!-- 底部按钮 -->
+            <div class="hot-modal-footer">
+                <div class="hot-total-price">
+                    <span class="hot-total-label">总计</span>
+                    <span class="hot-total-value" id="hot-total-price">¥15</span>
+                </div>
+                <div class="hot-modal-actions">
+                    <button class="hot-cancel-btn" id="hot-customization-cancel-btn">取消</button>
+                    <button class="hot-confirm-btn" id="hot-customization-confirm-btn">
+                        <span class="hot-btn-sparkle">✨</span>
+                        确认购买
+                        <span class="hot-btn-sparkle">✨</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>

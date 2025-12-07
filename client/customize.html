@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>奶茶定制 - 特惠</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            light: "#FF8C4B",
+                            dark: "#F97316"
+                        },
+                        "background-light": "#F8FAFC",
+                        "background-dark": "#18181B",
+                        "surface-light": "#FFFFFF",
+                        "surface-dark": "#27272A",
+                        "text-primary-light": "#18181B",
+                        "text-primary-dark": "#F8FAFC",
+                        "text-secondary-light": "#64748B",
+                        "text-secondary-dark": "#94A3B8",
+                        "border-light": "#E2E8F0",
+                        "border-dark": "#3F3F46",
+                    },
+                    fontFamily: {
+                        display: ["Noto Sans SC", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "1rem",
+                        "2xl": "1.5rem"
+                    },
+                    boxShadow: {
+                        'soft-glow-light': '0 4px 14px 0 rgba(255, 178, 112, 0.3)',
+                        'soft-glow-dark': '0 4px 14px 0 rgba(249, 115, 22, 0.2)',
+                    }
+                },
+            },
+        };
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        /* 选中动画 */
+        .option-btn {
+            transition: all 0.2s ease;
+        }
+        .option-btn:hover {
+            transform: scale(1.05);
+        }
+        .option-btn.selected {
+            animation: pulse-once 0.3s ease;
+        }
+        @keyframes pulse-once {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        /* 确认按钮动画 */
+        .confirm-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 140, 75, 0.4);
+        }
+        .confirm-btn:active {
+            transform: translateY(0);
+        }
+
+        /* 数量选择器 */
+        .quantity-btn:hover {
+            background-color: #fbbf24;
+            color: white;
+        }
+
+        /* 特惠标签动画 */
+        .special-badge {
+            animation: float 2s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display flex items-center justify-center min-h-screen p-4">
+    <div class="relative w-full max-w-sm mx-auto bg-surface-light dark:bg-surface-dark rounded-2xl shadow-xl overflow-hidden">
+        <!-- 头部 -->
+        <div class="p-4 bg-gradient-to-r from-orange-200 to-rose-200 dark:from-orange-800/50 dark:to-rose-800/50">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-2 text-zinc-800 dark:text-zinc-200">
+                    <span class="material-symbols-outlined text-amber-900 dark:text-amber-400">local_cafe</span>
+                    <h2 class="font-semibold text-lg">个性化定制</h2>
+                </div>
+                <button onclick="goBack()" class="text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 内容区域 -->
+        <div class="p-6 space-y-6">
+            <!-- 商品信息 -->
+            <div class="flex items-center gap-4">
+                <div id="product-image" class="w-24 h-24 flex items-center justify-center text-6xl bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                    🧋
+                </div>
+                <div class="flex-1">
+                    <h3 id="product-name" class="text-xl font-bold text-text-primary-light dark:text-text-primary-dark">珍珠奶茶</h3>
+                    <p id="product-price" class="text-lg font-bold text-red-500 mt-1">¥15</p>
+                    <p id="product-desc" class="text-sm text-text-secondary-light dark:text-text-secondary-dark mt-1">经典台式珍珠奶茶</p>
+                </div>
+                <div class="flex flex-col items-center special-badge">
+                    <div class="relative inline-flex items-center justify-center p-2 rounded-full bg-amber-400/20 dark:bg-amber-400/30">
+                        <span class="material-symbols-outlined text-amber-500 dark:text-amber-400 text-3xl" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+                    </div>
+                    <p class="text-sm font-medium text-amber-600 dark:text-amber-400 mt-1">特惠</p>
+                </div>
+            </div>
+
+            <!-- 甜度选择 -->
+            <div id="sweetness-section" class="p-4 border border-border-light dark:border-border-dark rounded-lg">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="material-symbols-outlined text-amber-900 dark:text-amber-400 text-xl">local_cafe</span>
+                    <h4 class="font-semibold text-text-primary-light dark:text-text-primary-dark">选择甜度</h4>
+                </div>
+                <div class="grid grid-cols-3 gap-3 text-sm" id="sweetness-options">
+                    <button onclick="selectSweetness(this, '0糖')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">0糖</button>
+                    <button onclick="selectSweetness(this, '3分糖')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">3分糖</button>
+                    <button onclick="selectSweetness(this, '5分糖')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">5分糖</button>
+                    <button onclick="selectSweetness(this, '7分糖')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">7分糖</button>
+                    <button onclick="selectSweetness(this, '全糖')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">全糖</button>
+                </div>
+            </div>
+
+            <!-- 冰度选择 -->
+            <div id="ice-section" class="p-4 border border-border-light dark:border-border-dark rounded-lg">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="material-symbols-outlined text-blue-500 dark:text-blue-400 text-xl">ac_unit</span>
+                    <h4 class="font-semibold text-text-primary-light dark:text-text-primary-dark">选择冰度</h4>
+                </div>
+                <div class="grid grid-cols-4 gap-3 text-sm" id="ice-options">
+                    <button onclick="selectIce(this, '正常冰')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">正常冰</button>
+                    <button onclick="selectIce(this, '少冰')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">少冰</button>
+                    <button onclick="selectIce(this, '去冰')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">去冰</button>
+                    <button onclick="selectIce(this, '温')" class="option-btn py-2 px-3 bg-zinc-100 dark:bg-zinc-700 rounded-lg text-text-secondary-light dark:text-text-secondary-dark">温</button>
+                </div>
+            </div>
+
+            <!-- 数量选择 -->
+            <div class="p-4 border border-border-light dark:border-border-dark rounded-lg">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="material-symbols-outlined text-green-500 dark:text-green-400 text-xl">shopping_cart</span>
+                    <h4 class="font-semibold text-text-primary-light dark:text-text-primary-dark">选择数量</h4>
+                </div>
+                <div class="flex items-center justify-center gap-6">
+                    <button onclick="changeQuantity(-1)" class="quantity-btn w-10 h-10 flex items-center justify-center bg-zinc-100 dark:bg-zinc-700 rounded-full text-xl font-bold text-text-primary-light dark:text-text-primary-dark transition-colors">
+                        -
+                    </button>
+                    <span id="quantity" class="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark w-12 text-center">1</span>
+                    <button onclick="changeQuantity(1)" class="quantity-btn w-10 h-10 flex items-center justify-center bg-zinc-100 dark:bg-zinc-700 rounded-full text-xl font-bold text-text-primary-light dark:text-text-primary-dark transition-colors">
+                        +
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部按钮 -->
+        <div class="p-4 bg-surface-light dark:bg-surface-dark border-t border-border-light dark:border-border-dark">
+            <div class="flex justify-between items-center mb-4">
+                <span class="text-text-secondary-light dark:text-text-secondary-dark">总计</span>
+                <span id="total-price" class="text-2xl font-bold text-red-500">¥15</span>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="goBack()" class="py-3 px-6 bg-zinc-200 dark:bg-zinc-700 text-text-primary-light dark:text-text-primary-dark font-semibold rounded-full transition-all hover:bg-zinc-300 dark:hover:bg-zinc-600">
+                    取消
+                </button>
+                <button onclick="confirmOrder()" class="confirm-btn relative py-3 px-6 bg-gradient-to-r from-orange-400 to-rose-500 text-white font-semibold rounded-full shadow-soft-glow-light dark:shadow-soft-glow-dark transition-all">
+                    <span class="absolute top-1/2 left-4 -translate-y-1/2 text-white/50 text-sm">✨</span>
+                    <span class="absolute top-1/2 right-4 -translate-y-1/2 text-white/50 text-sm">✨</span>
+                    确认购买
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 成功提示 -->
+    <div id="success-toast" class="fixed top-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-6 py-3 rounded-full shadow-lg transform -translate-y-20 opacity-0 transition-all duration-300 flex items-center gap-2">
+        <span class="material-symbols-outlined">check_circle</span>
+        <span>下单成功！</span>
+    </div>
+
+    <script>
+        // 商品数据
+        let product = {
+            id: 1,
+            name: '珍珠奶茶',
+            price: 15,
+            image: '🧋',
+            description: '经典台式珍珠奶茶',
+            hasSweetness: true,
+            hasIceLevel: true
+        };
+
+        // 选择状态
+        let selectedSweetness = null;
+        let selectedIce = null;
+        let quantity = 1;
+
+        // 从 URL 参数获取商品信息
+        function loadProductFromURL() {
+            const params = new URLSearchParams(window.location.search);
+
+            if (params.has('id')) product.id = parseInt(params.get('id'));
+            if (params.has('name')) product.name = decodeURIComponent(params.get('name'));
+            if (params.has('price')) product.price = parseFloat(params.get('price'));
+            if (params.has('image')) product.image = decodeURIComponent(params.get('image'));
+            if (params.has('desc')) product.description = decodeURIComponent(params.get('desc'));
+            if (params.has('sweetness')) product.hasSweetness = params.get('sweetness') === 'true';
+            if (params.has('ice')) product.hasIceLevel = params.get('ice') === 'true';
+
+            // 更新页面显示
+            document.getElementById('product-name').textContent = product.name;
+            document.getElementById('product-price').textContent = '¥' + product.price;
+            document.getElementById('product-image').textContent = product.image;
+            document.getElementById('product-desc').textContent = product.description;
+
+            // 隐藏不需要的选项
+            if (!product.hasSweetness) {
+                document.getElementById('sweetness-section').style.display = 'none';
+                selectedSweetness = '默认';
+            }
+            if (!product.hasIceLevel) {
+                document.getElementById('ice-section').style.display = 'none';
+                selectedIce = '默认';
+            }
+
+            updateTotalPrice();
+        }
+
+        // 选择甜度
+        function selectSweetness(btn, value) {
+            // 清除之前的选择
+            document.querySelectorAll('#sweetness-options button').forEach(b => {
+                b.classList.remove('bg-white', 'dark:bg-zinc-900', 'border-2', 'border-amber-400', 'dark:border-amber-500', 'text-amber-900', 'dark:text-amber-400', 'font-semibold', 'selected');
+                b.classList.add('bg-zinc-100', 'dark:bg-zinc-700', 'text-text-secondary-light', 'dark:text-text-secondary-dark');
+                // 移除勾选标记
+                const check = b.querySelector('.check-mark');
+                if (check) check.remove();
+            });
+
+            // 添加选中样式
+            btn.classList.remove('bg-zinc-100', 'dark:bg-zinc-700', 'text-text-secondary-light', 'dark:text-text-secondary-dark');
+            btn.classList.add('bg-white', 'dark:bg-zinc-900', 'border-2', 'border-amber-400', 'dark:border-amber-500', 'text-amber-900', 'dark:text-amber-400', 'font-semibold', 'selected');
+
+            // 添加勾选标记
+            const checkMark = document.createElement('span');
+            checkMark.className = 'check-mark absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 bg-blue-500 rounded-full text-white';
+            checkMark.innerHTML = '<span class="material-symbols-outlined text-sm">done</span>';
+            btn.style.position = 'relative';
+            btn.appendChild(checkMark);
+
+            selectedSweetness = value;
+        }
+
+        // 选择冰度
+        function selectIce(btn, value) {
+            // 清除之前的选择
+            document.querySelectorAll('#ice-options button').forEach(b => {
+                b.classList.remove('bg-white', 'dark:bg-zinc-900', 'border-2', 'border-blue-400', 'dark:border-blue-500', 'text-blue-900', 'dark:text-blue-400', 'font-semibold', 'selected');
+                b.classList.add('bg-zinc-100', 'dark:bg-zinc-700', 'text-text-secondary-light', 'dark:text-text-secondary-dark');
+                const check = b.querySelector('.check-mark');
+                if (check) check.remove();
+            });
+
+            // 添加选中样式
+            btn.classList.remove('bg-zinc-100', 'dark:bg-zinc-700', 'text-text-secondary-light', 'dark:text-text-secondary-dark');
+            btn.classList.add('bg-white', 'dark:bg-zinc-900', 'border-2', 'border-blue-400', 'dark:border-blue-500', 'text-blue-900', 'dark:text-blue-400', 'font-semibold', 'selected');
+
+            // 添加勾选标记
+            const checkMark = document.createElement('span');
+            checkMark.className = 'check-mark absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 bg-blue-500 rounded-full text-white';
+            checkMark.innerHTML = '<span class="material-symbols-outlined text-sm">done</span>';
+            btn.style.position = 'relative';
+            btn.appendChild(checkMark);
+
+            selectedIce = value;
+        }
+
+        // 修改数量
+        function changeQuantity(delta) {
+            quantity = Math.max(1, Math.min(99, quantity + delta));
+            document.getElementById('quantity').textContent = quantity;
+            updateTotalPrice();
+        }
+
+        // 更新总价
+        function updateTotalPrice() {
+            const total = product.price * quantity;
+            document.getElementById('total-price').textContent = '¥' + total;
+        }
+
+        // 返回
+        function goBack() {
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location.href = 'index.html';
+            }
+        }
+
+        // 确认订单
+        function confirmOrder() {
+            // 验证选择
+            if (product.hasSweetness && !selectedSweetness) {
+                alert('请选择甜度');
+                return;
+            }
+            if (product.hasIceLevel && !selectedIce) {
+                alert('请选择冰度');
+                return;
+            }
+
+            // 构建订单信息
+            const order = {
+                productId: product.id,
+                productName: product.name,
+                productImage: product.image,
+                price: product.price,
+                quantity: quantity,
+                totalPrice: product.price * quantity,
+                customization: {
+                    sweetness: selectedSweetness || '默认',
+                    iceLevel: selectedIce || '默认'
+                }
+            };
+
+            console.log('订单信息:', order);
+
+            // 显示成功提示
+            const toast = document.getElementById('success-toast');
+            toast.classList.remove('-translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            // 2秒后返回
+            setTimeout(() => {
+                toast.classList.add('-translate-y-20', 'opacity-0');
+                toast.classList.remove('translate-y-0', 'opacity-100');
+
+                setTimeout(() => {
+                    goBack();
+                }, 300);
+            }, 1500);
+        }
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', loadProductFromURL);
+    </script>
+</body>
+</html>
